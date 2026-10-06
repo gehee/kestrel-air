@@ -2,8 +2,8 @@
 
 ## Overview
 `kestrel-air` is the air-side application of the kestrel FPV system for the
-**Caddx Ascent air unit** (HiSilicon Hi3516CV610, CV2004 sensor, AR8030
-radio). It takes the place of the stock air app and runs the unit as it does:
+**Caddx Ascent Lite and Lite+ air units** (HiSilicon Hi3516CV610, CV2004 sensor,
+AR8030 radio). It takes the place of the stock air app and runs the unit as it does:
 camera, H.265 encoder, the AR8030 radio and the ground's messages, so a stock
 goggle and [kestrel-gnd](https://github.com/gehee/kestrel-gnd) both work with
 it. What it does the stock way was reverse-engineered from the stock air app;
@@ -67,7 +67,7 @@ src/camera/              the Hi3516CV610 pipeline (MIPI, VI, ISP, VPSS) and the 
 src/video/               encoder channel, packets around each slice, local ring, sender
 src/radio/               the AR8030: ar_libre client, link setup, events, bandwidth, power, pairing
 src/ground/              messages with the ground: framing, commands, periodic reports
-src/unit/                the board (key, LEDs, debug commands) and the flight controller link
+src/unit/                the board (Lite or Lite+, key, LEDs, debug commands) and the flight controller link
 src/imu/                 the IMU and its SEI messages
 src/common/              clocks, checksums, JSON
 tests/                   host-side tests (make test)
@@ -113,7 +113,7 @@ timing, from bytes the stock app always sends as zero:
 | `KA_GOP` | GOP length. With intra refresh it must be one sweep: the CV610 refreshes once per GOP and then stops until the next GOP start (a P picture there, not a keyframe) | one sweep with intra refresh (17 at 1080p with 2 rows), `25` without |
 | `KA_LD_LINES` | VPSS hands the encoder lines in steps of this many | `64`, `128` with intra refresh (32 is 0.3 ms faster but sometimes halves the frame rate) |
 | `KA_LATINFO` | `0` leaves header bytes 2, 10, 11, 26..29, 33, 35..41 as the stock app sends them | `1` |
-| `KA_SLICE_ROWS` | CTU rows per slice | `17` at 1080p100, `9` at 60 |
+| `KA_SLICE_COUNT` | slices a picture; the CTU rows each follow from the height | `2` above 60 fps, `4` at 60 and below |
 | `KA_STRATEGY` | the video strategy, whatever the ground's settings say (0 low delay, 2 wing) | the ground's |
 | `KA_DUMP`, `KA_DUMP_KB` | write the first `KA_DUMP_KB` KiB sent to a file, as an Annex-B stream | off, `8192` |
 | `KA_BW40` | `1`: widen the video link to 40 MHz on its own when the link is strong (each change re-forms the link, about 0.7 s without picture), and take the goggle's Max Bandwidth cap | off |

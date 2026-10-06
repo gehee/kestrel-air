@@ -11,6 +11,7 @@
 #include "app/state.h"
 #include "camera/image.h"
 #include "common/clock.h"
+#include "unit/model.h"
 
 // mW to dBm on this board; values under 20 are taken as dBm.
 static int power_dbm(int p) {
@@ -32,6 +33,11 @@ static void set_local_power(int p) {
     uint8_t a[3] = { 2, (uint8_t)dbm, (uint8_t)dbm }, b[2] = { 8, (uint8_t)dbm };
     while (r_set(0x0009, a, 3) != 0) usleep(10000);
     while (r_set(0x0008, b, 2) != 0) usleep(10000);
+    // The Lite+'s front end goes to high power above 23 dBm (stock: 500 mW).
+    if (model_lite_plus()) {
+        r_set_fem(dbm > 23);
+        if (dbm > 23) usleep(50000);
+    }
 }
 
 void *r_standby_thread(void *arg) {

@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "app/app.h"
+#include "unit/model.h"
 #include "app/config.h"
 #include "app/state.h"
 #include "ground/ground.h"
@@ -70,7 +71,7 @@ static void send_cam_setting(void) {
     uint8_t m[62];
     m[0] = 0x03;
     put_cfg_struct(m + 1);
-    const uint8_t tlv[12] = { 3, 0x11, PRJ_TYPE, 3, 0x13, SENSOR_TYPE,
+    const uint8_t tlv[12] = { 3, 0x11, (uint8_t)model_prj(), 3, 0x13, SENSOR_TYPE,
                               3, 0x12, (uint8_t)cfg_get("sys_standby_mode", 1), 3, 0x14, RF_HW_VER };
     memcpy(m + 50, tlv, 12);
     int r = ground_send(m, 62);

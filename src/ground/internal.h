@@ -5,7 +5,6 @@
 
 #include "ground/frame.h"
 
-#define PRJ_TYPE      4       // --board_type 482
 #define SENSOR_TYPE   1       // CV2004
 #define RF_HW_VER     0x10    // this unit's RF board, as stock reports it
 

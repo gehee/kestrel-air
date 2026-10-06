@@ -2,6 +2,7 @@
 // has asked for video, its rate control, intra refresh and the other knobs
 // (with live tuning through /tmp/ka-tune), and reading its slices.
 #include "video/internal.h"
+#include "video/slices.h"
 
 #include <fcntl.h>
 #include <pthread.h>
@@ -246,18 +247,15 @@ int venc_create(int kbps) {
     rc_param_apply();
     cu_apply();
     fgp_scene_apply();   // scene mode 1 unless tuned
-    // Slices of CTU rows by height and rate: 1080p above 60 fps -> 17. Not
-    // fewer rows at 1080p100: with 9 (four slices) the encoder skipped every
-    // other picture (2026-10-04: 50 fps out of 100 in, capture stamps 20 ms
-    // apart).
-    int rows = height == 720 ? (fps <= 60 ? 6 : 12) : height == 900 ? 8 : height == 1440 ? 12 :
-               (fps <= 60 ? 9 : 17);
-    rows = env_int("KA_SLICE_ROWS", rows);
+    // Slices: a number of them (KA_SLICE_COUNT, else by size and rate - see
+    // video/slices.c), as CTU rows each.
+    const int slices = env_int("KA_SLICE_COUNT", slice_count_default(height, fps));
+    const int rows = slice_rows_for(height, slices);
     ot_venc_slice_split split = { TD_TRUE, 1, (td_u32)rows, TD_TRUE };
     ss_mpi_venc_set_slice_split(CHN, &split);
 
     if (ir_rows() > 0) ir_apply();
-    printf("video: gop %d, slice rows %d\n", a.rc_attr.h265_cbr.gop, rows);
+    printf("video: gop %d, %d slices asked for: %d CTU rows a slice\n", a.rc_attr.h265_cbr.gop, slices, rows);
 
     ot_venc_h265_vui vui;
     if (ss_mpi_venc_get_h265_vui(CHN, &vui) == TD_SUCCESS) {

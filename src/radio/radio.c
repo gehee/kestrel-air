@@ -3,14 +3,15 @@
 // order, the same event handling and timers, the same periodic reads. Worked
 // out by reverse-engineering it, and checked against a trace of its radio traffic.
 //
-// Board: the Caddx Ascent (stock --board_type 482, "prj 4", an RF board of
-// type 0x10/0x20/0x60): branches of the stock code for other boards are left
-// out.
+// Boards: the Caddx Ascent Lite (stock board type 482, "prj 4") and Lite+ (472,
+// "prj 7"), see unit/model.c; branches of the stock code for other boards
+// are left out.
 #include "video/video.h"
 #include "camera/image.h"
 #include "app/state.h"
 #include "radio/radio.h"
 #include "radio/internal.h"
+#include "unit/model.h"
 
 #include <fcntl.h>
 #include <pthread.h>
@@ -95,6 +96,14 @@ void r_set_rf_path_b(int enable) {
     // leftovers there, zeros here.
     uint8_t a[3] = { 0x01, 0x03, (uint8_t)enable };
     r_dispatch(0xcb, a, 3);
+}
+
+// The Lite+'s front-end module: high power (on) or low (off), through a GPIO
+// of the radio chip (PRJ_CMD_SET_GPIO), as stock's "set fem ctrl".
+void r_set_fem(int on) {
+    uint8_t a[3] = { 0x83, 0x50, (uint8_t)(on ? 2 : 0) };
+    if (r_dispatch(0x0e, a, 3)) printf("radio: set fem ctrl to %d failed\n", on);
+    else printf("radio: set fem ctrl to %d\n", on);
 }
 
 void r_set_adc_meas(int chn, uint32_t period_ms) {
@@ -471,6 +480,7 @@ int radio_start(const radio_hooks *hk) {
     r_set_rf_path_b(0);
     r_set_adc_meas(3, 200);
     r_adc_state = 1;
+    if (model_lite_plus()) r_set_fem(0);
 
     // Retransmission events: window 10, stock's defaults.
     uint8_t retx[136];
@@ -509,9 +519,19 @@ int radio_start(const radio_hooks *hk) {
     int off[4] = { 0, 0, 0, 0 };
     if (cfg_json_ints("/usrdata/mp_cfg.json", "bb_power_offset", off, 4) < 2)
         cfg_json_ints("/factory/user_cfg.json", "bb_power_offset", off, 4);
-    for (int path = 0; path < 2; path++) {
-        uint8_t o[4] = { 2, (uint8_t)off[path], (uint8_t)path, 0 };
-        r_set(0x006e, o, 4);
+    if (model_lite_plus()) {
+        // Four offsets: two groups (0, 1) of the two paths.
+        for (int g = 0; g < 2; g++)
+            for (int path = 0; path < 2; path++) {
+                uint8_t o[4] = { (uint8_t)g, (uint8_t)off[g * 2 + path], (uint8_t)path, 0 };
+                r_set(0x006e, o, 4);
+            }
+    } else {
+        // Two: one per path, group 2.
+        for (int path = 0; path < 2; path++) {
+            uint8_t o[4] = { 2, (uint8_t)off[path], (uint8_t)path, 0 };
+            r_set(0x006e, o, 4);
+        }
     }
 
     pthread_create(&t, NULL, r_standby_thread, NULL);

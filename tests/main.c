@@ -10,6 +10,8 @@ int main(void) {
     test_json();
     test_ring();
     test_settings();
+    test_model();
+    test_slices();
     printf("%d checks, %d failed\n", checks, failures);
     return failures != 0;
 }

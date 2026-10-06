@@ -35,6 +35,7 @@ int  r_set(uint16_t id, const void *in, uint32_t inlen);
 int  r_dispatch(uint8_t cmd, const uint8_t *args, int nargs);
 void r_set_rf_path_b(int enable);
 void r_set_adc_meas(int chn, uint32_t period_ms);
+void r_set_fem(int on);                     // the Lite+'s high-power front end
 int  r_get_adc(int chn);
 
 void *r_adc_thread(void *arg);               // adc.c

@@ -12,3 +12,5 @@ void test_frame(void);
 void test_json(void);
 void test_ring(void);
 void test_settings(void);
+void test_model(void);
+void test_slices(void);

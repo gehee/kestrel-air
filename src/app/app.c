@@ -8,6 +8,7 @@
 #include "imu/imu.h"
 #include "ground/ground.h"
 #include "unit/board.h"
+#include "unit/model.h"
 #include "unit/fc.h"
 
 #include <fcntl.h>
@@ -84,6 +85,11 @@ int app_set_sensor_res(int w, int h, int fps, int angle) {
 int app_run(volatile char *keep_running) {
     printf("app: kestrel-air %s\n", KA_VERSION);
     settings_log();
+    if (model_init(BOARD_TYPE_FILE)) {
+        // air/start.sh only starts kestrel-air on a Lite or Lite+. Exit 0: no reboot.
+        fprintf(stderr, "app: not an air unit kestrel-air runs on\n");
+        return 0;
+    }
     board_leds_boot();
     if (cfg_load()) printf("app: no %s, wrote the defaults\n", CFG_PATH);
     sensor_boot();

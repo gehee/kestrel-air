@@ -1,6 +1,6 @@
 # kestrel-air: how it is put together
 
-kestrel-air runs the Caddx Ascent air unit in place of the stock air app: the
+kestrel-air runs the Caddx Ascent Lite and Lite+ air units in place of the stock air app: the
 camera, the H.265 encoder, the AR8030 radio (through ar_libre) and the
 messages with the ground. What it does the stock way was reverse-engineered
 from the stock app; what is ours is said where it is done.
@@ -15,7 +15,7 @@ from the stock app; what is ours is said where it is done.
 | `src/video/` | The encoder channel and its tuning (`encoder.c`), the packet around each slice and the sender (`video.c`), the local packet ring (`ring.c`), `--bb-verbose` timing (`stats.c`) | camera, radio, imu |
 | `src/radio/` | ar_libre's client (`client.c`); the radio set up and run as stock does: requests, events, timers, link state (`radio.c`), channels, pairing, bandwidth, transmit power and standby, the chip's ADC | video, ground, board |
 | `src/ground/` | Messages with the ground on radio port 2: the frame (`frame.c`, no I/O), the ground's commands, the air's reports | radio, camera, video, app |
-| `src/unit/` | The board: pairing key, LEDs, debug commands (`board.c`); the flight controller over MSP (`fc.c`) | radio, ground |
+| `src/unit/` | The board: Lite or Lite+ (`model.c`), pairing key, LEDs, debug commands (`board.c`); the flight controller over MSP (`fc.c`) | radio, ground |
 | `src/imu/` | The ICM-40609-D, sampled at 1 kHz, its samples carried as SEI after each picture | video |
 | `src/common/` | Clocks, CRC-32C and CRC-8, a small JSON tree | everything |
 
