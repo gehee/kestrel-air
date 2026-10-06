@@ -1,0 +1,7 @@
+*.o
+*.d
+*.so
+*.log
+kestrel-air
+.DS_Store
+tests/run
