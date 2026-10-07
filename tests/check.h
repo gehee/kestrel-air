@@ -14,3 +14,4 @@ void test_ring(void);
 void test_settings(void);
 void test_model(void);
 void test_slices(void);
+void test_fcpoll(void);

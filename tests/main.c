@@ -12,6 +12,7 @@ int main(void) {
     test_settings();
     test_model();
     test_slices();
+    test_fcpoll();
     printf("%d checks, %d failed\n", checks, failures);
     return failures != 0;
 }

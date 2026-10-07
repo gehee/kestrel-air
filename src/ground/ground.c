@@ -34,8 +34,46 @@
 static pthread_mutex_t tx_mtx = PTHREAD_MUTEX_INITIALIZER;
 static uint8_t tx_seq;
 
+// One writer at a time. The reports (the tick thread), the flight controller's
+// relay (fc.c) and the acknowledgements (the receive thread) all write to the one
+// control socket; a frame goes out in as many writes as the radio takes, and
+// another thread's frame in between corrupts both - and the socket's byte
+// count, after which every write fails and the ground hears nothing more.
+static pthread_mutex_t write_mtx = PTHREAD_MUTEX_INITIALIZER;
+
+static int write_frame_locked(const uint8_t *f, int n, int timeout_ms, int tries);
+
+static void on_rx(const uint8_t *d, uint32_t n, void *arg);
+
+// The socket counts the bytes written to it, and the goggle's end counts from
+// zero each time its app starts: when the goggle's app restarts (the link stays
+// up, so there is no link event) every write after fails. Writing again does not
+// help; a new socket counts from zero too. Three reports in a row that the
+// radio would not take, and it is reopened - at most every 3 s.
+static void reopen_ctrl(void) {
+    static uint32_t last_ms;
+    uint32_t now = mono_ms32();
+    if (last_ms && now - last_ms < 3000) return;
+    last_ms = now;
+    printf("ground: the control socket takes no writes - reopening it\n");
+    bbc_close(&radio_ctrl);
+    if (bbc_open(&radio_ctrl, 0, 2, 2, 0x800, on_rx, NULL)) puts("ground: the control socket would not reopen");
+}
+
 // Up to three tries of 200 ms, a few ms apart, as stock writes.
 int write_frame(const uint8_t *f, int n, int timeout_ms, int tries) {
+    static int failed_in_a_row;
+    pthread_mutex_lock(&write_mtx);
+    int r = write_frame_locked(f, n, timeout_ms, tries);
+    if (tries >= 2) {                        // the reports; an acknowledgement's one quick try is not a verdict
+        if (r >= 0) failed_in_a_row = 0;
+        else if (++failed_in_a_row >= 3) { failed_in_a_row = 0; reopen_ctrl(); }
+    }
+    pthread_mutex_unlock(&write_mtx);
+    return r;
+}
+
+static int write_frame_locked(const uint8_t *f, int n, int timeout_ms, int tries) {
     for (int t = 0; t < tries; t++) {
         int off = 0;
         while (off < n) {

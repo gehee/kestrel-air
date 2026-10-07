@@ -1,8 +1,9 @@
 // The flight controller link, as the stock air app runs it:
 // Betaflight MSP at 115200 on /dev/ttyAMA1.
 //
-// - It polls the FC every 20 ms: MSP_STATUS fifty times, then FC_VERSION,
-//   FC_VARIANT and ANALOG. Nothing else is ever written to the FC.
+// - It polls the FC every 20 ms. Stock asks MSP_STATUS fifty times, then FC_VERSION,
+//   FC_VARIANT and ANALOG, and nothing else. Ours asks for what the HUD shows -
+//   attitude, battery, altitude, GPS, the flight modes - see fcpoll.c.
 // - Every complete *response* goes to the ground as SG message 0x02 while
 //   the radio is linked, raw, in chunks of up to 172 bytes - except
 //   DisplayPort (182): its strings are kept as a screen, and each "draw"
@@ -16,6 +17,7 @@
 #include "unit/fc.h"
 #include "ground/ground.h"
 #include "unit/board.h"
+#include "unit/fcpoll.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -135,11 +137,15 @@ static void on_response(int cmd, const uint8_t *pl, int n, const uint8_t *raw, u
     }
 
     if (!radio_connected()) return;                 // not queued while unlinked
-    if (fwd_mode == 0) {
-        if (raw_len <= ring_space()) ring_put(raw, raw_len);
-    } else if (fwd_mode == 2) {
-        if (disp_idx <= ring_space()) ring_put(disp, disp_idx + 1);
+    if (cmd == 182) {
+        // DisplayPort: the screen goes as one frame, at each draw; the pieces before it do not.
+        if (fwd_mode == 2 && disp_idx <= ring_space()) ring_put(disp, disp_idx + 1);
         fwd_mode = 0;
+    } else if (raw_len <= ring_space()) {
+        // Everything else, as it comes. (Stock held these back from the first piece of
+        // a screen to its draw; polled values - attitude, battery, GPS - would then
+        // be lost often.)
+        ring_put(raw, raw_len);
     }
 }
 
@@ -221,15 +227,15 @@ static void *rx_thread(void *arg) {
 
 static void *poll_thread(void *arg) {
     (void)arg;
+    fcpoll_t poll;
+    fcpoll_init(&poll);
     for (;;) {
-        for (int i = 0; i < 53; i++) {
-            uint8_t cmd = i < 50 ? 101 : i == 50 ? 3 : i == 51 ? 2 : 110;
-            uint8_t req[6] = { '$', 'M', '<', 0, cmd, cmd };
-            pthread_mutex_lock(&uart_mtx);
-            if (write(fd, req, 6) < 0) { /* the FC is not there: keep polling */ }
-            pthread_mutex_unlock(&uart_mtx);
-            usleep(20000);
-        }
+        uint8_t cmd = fcpoll_next(&poll);
+        uint8_t req[6] = { '$', 'M', '<', 0, cmd, cmd };
+        pthread_mutex_lock(&uart_mtx);
+        if (write(fd, req, 6) < 0) { /* the FC is not there: keep polling */ }
+        pthread_mutex_unlock(&uart_mtx);
+        usleep(20000);
     }
     return NULL;
 }

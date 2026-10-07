@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/utsname.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -100,6 +101,8 @@ static int hw_ver_mv(void) {
     return avg > 0x3ff ? 0 : (int)(avg * 3300.0 / 1023.0);
 }
 
+static uint8_t hw_ver;   // the board-ID version, worked out by send_version()
+
 static void send_version(void) {
     static uint8_t m[16];
     static int done;
@@ -115,7 +118,7 @@ static void send_version(void) {
         // Bytes 1..4 and 7 are zero from the stock air app: ours says who it is.
         m[KA_VER_TAG0] = 'K'; m[KA_VER_TAG1] = 'A';
         m[KA_VER_PROTO] = KA_PROTOCOL; m[KA_VER_FEAT] = video_features();
-        m[5] = hw;
+        m[5] = hw_ver = hw;
         m[6] = RF_HW_VER;
         m[8] = 3;
         m[9] = (uint8_t)a; m[11] = (uint8_t)b; m[13] = (uint8_t)c;
@@ -125,6 +128,57 @@ static void send_version(void) {
     m[4] = video_features();   // the IMU is switched on after the first call
     m[15] = (uint8_t)cfg_get("sys_standby_mode", 1);
     ground_send(m, 16);
+}
+
+// The first line of a file next to kestrel-air (air/VERSION, written by the
+// image build), or of any file, without its newline; "" if there is none.
+static void first_line(const char *path, char *out, size_t cap) {
+    out[0] = '\0';
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    if (fgets(out, (int)cap, f)) out[strcspn(out, "\r\n")] = '\0';
+    fclose(f);
+}
+
+// KA_MSG_INFO: what this air unit is and runs, for the ground to show.
+static void send_info(void) {
+    static char m[512];
+    static int len;
+    if (!len) {
+        char dir[256] = "", path[300], os[64], radio[64], stock[128] = "", line[128];
+        ssize_t n = readlink("/proc/self/exe", dir, sizeof(dir) - 1);
+        if (n > 0) {
+            dir[n] = '\0';
+            char *slash = strrchr(dir, '/');
+            if (slash) *slash = '\0';
+        }
+        snprintf(path, sizeof(path), "%s/VERSION", dir);
+        first_line(path, os, sizeof(os));
+        snprintf(path, sizeof(path), "%s/ar-libre.version", dir);
+        first_line(path, radio, sizeof(radio));
+        if (strlen(radio) > 8 && !strchr(radio, '-')) radio[8] = '\0';   // a bare hash: short
+        FILE *f = fopen("/etc/app.version", "r");
+        while (f && fgets(line, sizeof(line), f))
+            if (!strncmp(line, "APP_VERSION=", 12)) {
+                snprintf(stock, sizeof(stock), "%s", line + 12);
+                stock[strcspn(stock, "\r\n")] = '\0';
+            }
+        if (f) fclose(f);
+        struct utsname u;
+        if (uname(&u)) u.release[0] = '\0';
+        m[0] = KA_MSG_INFO;
+        len = 1 + snprintf(m + 1, sizeof(m) - 1,
+                           "app=kestrel-air\nver=%s\nos=%s\nradio=%s\nkernel=%s\nstock=%s\n"
+                           "board=%d\nmodel=%s\nsensor=CV2004\nhw=0x%02x\n",
+                           KA_VERSION, os, radio, u.release, stock,
+                           model_board_type(), model_name(), hw_ver);
+        if (len > (int)sizeof(m)) len = sizeof(m);
+        printf("ground: info:");
+        for (char *k = m + 1, *e; k < m + len && (e = memchr(k, '\n', (size_t)(m + len - k))); k = e + 1)
+            printf(" %.*s", (int)(e - k), k);
+        printf("\n");
+    }
+    ground_send((const uint8_t *)m, len);
 }
 
 static uint8_t period_counter;
@@ -215,6 +269,7 @@ static volatile int restart_flag;
 void *tick_thread(void *arg) {
     (void)arg;
     int cam_cnt = 0, last_rec = -1, send_cam = 0;
+    uint32_t ver_ms = 0;
     for (;;) {
         for (int i = 0; i < 100; i++) {
             if (restart_flag) { restart_flag = 0; break; }
@@ -228,7 +283,15 @@ void *tick_thread(void *arg) {
             if (last_rec != 2) { last_rec = 2; break; }   // record state: no recorder
             usleep(50000);
             if (radio_connected()) {
-                if (i == 42 || i == 82) send_version();
+                // Version and info every 2 s by the clock. Stock sends the
+                // version at steps 42 and 82 of this loop, which the camera
+                // settings restart every ~31 steps until the ground acks
+                // them (cmd 0x12) - kestrel-gnd never does, so it never went.
+                if (mono_ms32() - ver_ms >= 2000) {
+                    ver_ms = mono_ms32();
+                    send_version();
+                    send_info();
+                }
                 if (i % 5 == 0) send_period();
                 if (i && i % 13 == 0) send_chan_info();
             }

@@ -27,6 +27,15 @@
 #define KA_VER_PROTO  3
 #define KA_VER_FEAT   4
 
+// ---- air -> ground messages that are ours -----------------------------------
+// What the air unit is and runs, sent after each version message: text,
+// "key=value" lines, '\n' after each. Keys: app (kestrel-air), ver (its
+// version), os (the fpvOS image), radio (ar_libre), kernel, stock (the stock
+// firmware under it, APP_VERSION), board (stock's board type), model, sensor,
+// hw (the board-ID version, as in the version message). A key may be missing;
+// a ground that does not know one skips it.
+#define KA_MSG_INFO 0x50
+
 // ---- ground -> air commands that are ours ------------------------------------
 #define KA_CMD_MAX_KBPS 0x40   // u32 LE: video bitrate cap in kbps, 0 = none
 #define KA_CMD_MAX_BW   0x41   // u8: video link bandwidth cap in MHz (20, or 40/0 = none)
