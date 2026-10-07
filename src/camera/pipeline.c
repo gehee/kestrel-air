@@ -31,15 +31,26 @@
 
 // The sensor: Ascents ship with either of two, both 1920x1080 on I2C 0x36
 // with 16-bit register addresses. The capture is always the full 1080p;
-// VPSS scales to the encoded size.
+// VPSS scales to the encoded size. They are told apart as the stock app
+// does, by two ID registers, the CV2004 first.
 typedef struct {
     const char *name, *lib, *obj;
-    int id;
+    int id;                       // the ISP's sensor id (what the driver registers)
+    unsigned id_reg;              // two consecutive ID registers ...
+    unsigned char id_val[2];      // ... and what they read
+    int type;                     // the sensor type the stock app reports to the ground
+    int angle_tuning;             // the tuning bins' names carry the orientation
+    int bayer_follows_angle;      // the ISP's bayer order turns with the orientation
 } cv610_sensor;
 static const cv610_sensor sensors[] = {
-    { "CV2004",  "libsns_cv2004.so",  "g_sns_cv2004_obj",  2004 },
+    { "cv2004",  "libsns_cv2004.so",  "g_sns_cv2004_obj",  2004, 0x3002, { 0x04, 0x20 }, 1, 1, 1 },
+    // Stock leaves the ISP's order at BGGR at both orientations.
+    { "os02k10", "libsns_os02k10.so", "g_sns_os02k10_obj", 1480, 0x300a, { 0x53, 0x02 }, 7, 0, 0 },
 };
 static const cv610_sensor *sns = &sensors[0];
+const char *cv610_sensor_name(void) { return sns->name; }
+int cv610_sensor_type(void) { return sns->type; }
+int cv610_sensor_angle_tuning(void) { return sns->angle_tuning; }
 #define SNS_I2C    0
 #define SNS_ADDR   0x36
 #define CAP_W      1920
@@ -277,9 +288,9 @@ static void *isp_run(void *arg) {
     return NULL;
 }
 
-// The sensor, checked the way the stock app does: the CV2004 answers 0x04
-// 0x20 at 0x3002/0x3003. Units with another sensor (the stock app also knows
-// an OS02K10) are not supported: the camera does not start on them.
+// The sensor, found the way the stock app does: each candidate's two ID
+// registers, in order. A unit with neither is not supported: the camera does
+// not start on it.
 static int sensor_read(int fd, unsigned reg) {
     unsigned char a[2] = { reg >> 8, reg & 0xff }, v = 0;
     if (write(fd, a, 2) != 2 || read(fd, &v, 1) != 1) return -1;
@@ -288,19 +299,29 @@ static int sensor_read(int fd, unsigned reg) {
 
 static int sensor_detect(void) {
     char dev[16];
-    int fd, id0, id1, ok = 1;
+    int fd, id0 = -1, id1 = -1;
 
     snprintf(dev, sizeof(dev), "/dev/i2c-%d", SNS_I2C);
     if ((fd = open(dev, O_RDWR)) < 0) return 1;
     if (ioctl(fd, 0x0706 /* I2C_SLAVE_FORCE */, SNS_ADDR) == 0) {
-        id0 = sensor_read(fd, 0x3002);
-        id1 = sensor_read(fd, 0x3003);
-        ok = id0 == 0x04 && id1 == 0x20;
-        printf("camera: sensor id 0x3002/3 = %02x %02x: %s\n", id0 & 0xff, id1 & 0xff,
-               ok ? sns->name : "not a CV2004 - unsupported");
+        for (unsigned i = 0; i < sizeof(sensors) / sizeof(sensors[0]); i++) {
+            const cv610_sensor *c = &sensors[i];
+            id0 = sensor_read(fd, c->id_reg);
+            id1 = sensor_read(fd, c->id_reg + 1);
+            printf("camera: sensor id 0x%x/%x = %02x %02x: %s\n", c->id_reg, c->id_reg + 1,
+                   id0 & 0xff, id1 & 0xff, (id0 == c->id_val[0] && id1 == c->id_val[1]) ? c->name : "not it");
+            if (id0 == c->id_val[0] && id1 == c->id_val[1]) {
+                sns = c;
+                close(fd);
+                return 1;
+            }
+        }
+        fprintf(stderr, "camera: an image sensor kestrel-air does not know\n");
+        close(fd);
+        return 0;
     }
     close(fd);
-    return ok;
+    return 1;
 }
 
 static int isp_setup(void) {
@@ -347,7 +368,7 @@ static int isp_setup(void) {
     pub.sns_size.height = CAP_H;
     pub.frame_rate = fps;          // the sensor driver picks its mode from this
     // Read out turned by 180 degrees, the CV2004's RGGB starts on blue.
-    pub.bayer_format = sns_angle > 0 ? OT_ISP_BAYER_BGGR : OT_ISP_BAYER_RGGB;
+    pub.bayer_format = (!sns->bayer_follows_angle || sns_angle > 0) ? OT_ISP_BAYER_BGGR : OT_ISP_BAYER_RGGB;
     pub.wdr_mode = OT_WDR_MODE_NONE;
     pub.mipi_crop_attr.mipi_crop_offset.width = CAP_W;    // unused (crop off), as stock fills it
     pub.mipi_crop_attr.mipi_crop_offset.height = CAP_H;

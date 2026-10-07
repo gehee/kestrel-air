@@ -2,8 +2,8 @@
 
 ## Overview
 `kestrel-air` is the air-side application of the kestrel FPV system for the
-**Caddx Ascent Lite and Lite+ air units** (HiSilicon Hi3516CV610, CV2004 sensor,
-AR8030 radio). It takes the place of the stock air app and runs the unit as it does:
+**Caddx Ascent Lite and Lite+ air units** (HiSilicon Hi3516CV610, CV2004 or OS02K10
+sensor, AR8030 radio). It takes the place of the stock air app and runs the unit as it does:
 camera, H.265 encoder, the AR8030 radio and the ground's messages, so a stock
 goggle and [kestrel-gnd](https://github.com/gehee/kestrel-gnd) both work with
 it. What it does the stock way was reverse-engineered from the stock air app;
@@ -36,14 +36,15 @@ Code that calls more of the libraries adds what it needs to
 `stubs/vendor-symbols.txt`, and `make check-stubs CROSS_COMPILE=<prefix>
 VENDOR_LIB=<dir with the libraries>` checks the list against them.
 
-The camera's sensor driver, `libsns_cv2004.so`, is installed
-next to it. kestrel-air loads it
-at run time. Units with another sensor than the CV2004 are not supported.
+The camera's sensor driver, `libsns_cv2004.so` or `libsns_os02k10.so`, is
+installed next to it. kestrel-air
+finds the sensor by its ID registers, as the stock app does, and loads its
+driver at run time. Units with another sensor than these two are not supported.
 
 [fpvOS](https://github.com/gehee/fpvOS) builds all of it into an air unit image.
 
 ## Running on the unit
-kestrel-air needs, next to it (`LD_LIBRARY_PATH`), `libsns_cv2004.so` and the
+kestrel-air needs, next to it (`LD_LIBRARY_PATH`), the sensor drivers and the
 SDK libraries it links:
 - `libss_mpi`, `libss_mpi_isp`, `libss_mpi_ae`, `libss_mpi_awb`, `libot_mpi_isp`
 - `libss_mpi_sysmem`, `libss_mpi_sysbind`, `libot_osal`, `libsecurec`, `libbin`

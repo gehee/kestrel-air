@@ -5,7 +5,7 @@
 
 #include "ground/frame.h"
 
-#define SENSOR_TYPE   1       // CV2004
+#define SENSOR_TYPE   cv610_sensor_type()   // 1 CV2004, 7 OS02K10
 #define RF_HW_VER     0x10    // this unit's RF board, as stock reports it
 
 int  write_frame(const uint8_t *f, int n, int timeout_ms, int tries);   // ground.c

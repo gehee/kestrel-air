@@ -18,6 +18,7 @@
 #include "app/state.h"
 #include "ground/ground.h"
 #include "camera/image.h"
+#include "camera/pipeline.h"
 #include "common/clock.h"
 #include "kestrel_air.h"
 #include "radio/radio.h"
@@ -169,9 +170,9 @@ static void send_info(void) {
         m[0] = KA_MSG_INFO;
         len = 1 + snprintf(m + 1, sizeof(m) - 1,
                            "app=kestrel-air\nver=%s\nos=%s\nradio=%s\nkernel=%s\nstock=%s\n"
-                           "board=%d\nmodel=%s\nsensor=CV2004\nhw=0x%02x\n",
+                           "board=%d\nmodel=%s\nsensor=%s\nhw=0x%02x\n",
                            KA_VERSION, os, radio, u.release, stock,
-                           model_board_type(), model_name(), hw_ver);
+                           model_board_type(), model_name(), cv610_sensor_name(), hw_ver);
         if (len > (int)sizeof(m)) len = sizeof(m);
         printf("ground: info:");
         for (char *k = m + 1, *e; k < m + len && (e = memchr(k, '\n', (size_t)(m + len - k))); k = e + 1)

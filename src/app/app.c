@@ -24,8 +24,8 @@
 
 static int flying(void) { return fc_flying(); }
 
-// After the CV2004 answers: its 24 MHz clock
-// select in bits 15:12 of 0x11018440, and /tmp/devinfo2.txt.
+// Before the sensor is looked for: its 24 MHz clock select in bits 15:12 of
+// 0x11018440 (the same for the CV2004 and the OS02K10).
 static void sensor_boot(void) {
     int fd = open("/dev/mem", O_RDWR | O_SYNC);
     if (fd >= 0) {
@@ -37,7 +37,13 @@ static void sensor_boot(void) {
         }
         close(fd);
     }
-    if (system("echo \"sensor_name=cv2004\n\" > /tmp/devinfo2.txt") != 0) { /* as stock */ }
+}
+
+// /tmp/devinfo2.txt, as stock writes it once the sensor has answered.
+static void sensor_devinfo(void) {
+    char cmd[80];
+    snprintf(cmd, sizeof(cmd), "echo \"sensor_name=%s\n\" > /tmp/devinfo2.txt", cv610_sensor_name());
+    if (system(cmd) != 0) { /* as stock */ }
 }
 
 // The recording path and the SD card, mounted if present.
@@ -50,14 +56,14 @@ static void record_init(void) {
         puts("app: mounting the SD card on /record failed");
 }
 
-// Output sizes: the CV2004 runs 1080p, 720p and 1440p requests at
+// Output sizes: the sensors run 1080p, 720p and 1440p requests at
 // up to 100 fps; anything else passes through.
 void app_ch0_remap(int *w, int *h, int *fps) {
     int known = (*w == 1920 && *h == 1080) || (*w == 1280 && *h == 720) || (*w == 2560 && *h == 1440);
     if (known && *fps > 99) *fps = 100;
 }
 
-// The CV2004's mode for a rate: its 60 and 50 fps modes when asked for
+// The sensor's mode for a rate: its 60 and 50 fps modes (both sensors have 50, 60 and 100) when asked for
 // exactly those, its 100 fps mode otherwise (the encoder drops the rest).
 static int sensor_fps(int fps) { return fps == 60 ? 60 : fps == 50 ? 50 : 100; }
 
@@ -106,6 +112,7 @@ int app_run(volatile char *keep_running) {
         fprintf(stderr, "app: camera pipeline failed\n");
         return 1;
     }
+    sensor_devinfo();
     video_set_format(w, h, f, sf);
     image_start(sf, angle);
     image_apply_all();

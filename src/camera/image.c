@@ -19,10 +19,10 @@
 
 #include "sdk/cv610.h"
 #include "app/config.h"
+#include "camera/pipeline.h"
 
 #define PIPE 0
 #define TUNING_DIR "/usrdata/fpv/tunning"
-#define SENSOR "cv2004"
 
 // libbin.so (MPP PQ-bin import), the stock app's call.
 typedef struct { uint32_t isp_enable, nr_enable, vi_pipe, rsv[3]; } pq_bin_param;
@@ -39,7 +39,7 @@ extern int OT_PQ_BIN_ImportBinData(pq_bin_param *p, uint8_t *buf, uint32_t size)
 #define OFF_WB_CV2004    0x2551b0     // 31 x {u32 cct, u16 r, gr, gb, b}
 
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
-static int have_stock;
+static int have_stock, have_wb;
 unsigned image_max_exposure_us;   // 0: the tuning bin's own limit
 static uint8_t nr_tab[3][NR_BODY];
 static uint8_t sharpen_man[0x1a4];
@@ -67,9 +67,13 @@ static void load_stock_tables(void) {
         }
         fseek(f, OFF_SHARPEN_MAN, SEEK_SET);
         ok &= fread(sharpen_man, sizeof(sharpen_man), 1, f) == 1;
-        fseek(f, OFF_WB_CV2004, SEEK_SET);
-        ok &= fread(wb_tab, sizeof(wb_tab), 1, f) == 1;
         have_stock = ok;
+        // The manual white-balance gains by colour temperature are the CV2004's
+        // only; for another sensor a temperature is turned into gains by the ISP.
+        if (ok && !strcmp(cv610_sensor_name(), "cv2004")) {
+            fseek(f, OFF_WB_CV2004, SEEK_SET);
+            have_wb = fread(wb_tab, sizeof(wb_tab), 1, f) == 1;
+        }
     }
     fclose(f);
     if (!have_stock) printf("image: %s not the expected build: no 3DNR presets or manual sharpen\n", STOCK_APP);
@@ -79,8 +83,13 @@ static void load_stock_tables(void) {
 // and day (scene 0) or night (2).
 static int pq_bin_load(int xg) {
     char path[160];
-    snprintf(path, sizeof(path), "%s/cam_%s_%dfps_%d_xg%d_%s.bin", TUNING_DIR, SENSOR, fps,
-             angle ? 180 : 0, xg + 1, scene == 2 ? "night" : "day");
+    // The CV2004's bins are made per orientation; the OS02K10's are not.
+    if (cv610_sensor_angle_tuning())
+        snprintf(path, sizeof(path), "%s/cam_%s_%dfps_%d_xg%d_%s.bin", TUNING_DIR, cv610_sensor_name(), fps,
+                 angle ? 180 : 0, xg + 1, scene == 2 ? "night" : "day");
+    else
+        snprintf(path, sizeof(path), "%s/cam_%s_%dfps_xg%d_%s.bin", TUNING_DIR, cv610_sensor_name(), fps,
+                 xg + 1, scene == 2 ? "night" : "day");
     FILE *f = fopen(path, "rb");
     if (!f) {
         printf("image: cannot open %s\n", path);
@@ -219,7 +228,7 @@ void image_set_awb(int cct) {
     } else {
         td_u16 g[4] = { 0, 0, 0, 0 };
         int found = 0;
-        for (int i = 0; have_stock && i < 31; i++) {
+        for (int i = 0; have_wb && i < 31; i++) {
             uint32_t c;
             memcpy(&c, wb_tab + 12 * i, 4);
             if (c == (uint32_t)cct) {
