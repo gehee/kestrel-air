@@ -24,26 +24,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "ot_common.h"
-#include "ot_common_3a.h"
-#include "ot_common_isp.h"
-#include "ot_common_sys.h"
-#include "ot_common_vb.h"
-#include "ot_common_venc.h"
-#include "ot_common_vi.h"
-#include "ot_common_video.h"
-#include "ot_common_vpss.h"
-#include "ot_mipi_rx.h"
-#include "ot_sns_ctrl.h"
-#include "ss_mpi_ae.h"
-#include "ss_mpi_awb.h"
-#include "ss_mpi_isp.h"
-#include "ss_mpi_sys.h"
-#include "ss_mpi_sys_bind.h"
-#include "ss_mpi_vb.h"
-#include "ss_mpi_venc.h"
-#include "ss_mpi_vi.h"
-#include "ss_mpi_vpss.h"
+#include "sdk/cv610.h"
 #include "common/clock.h"
 #include "app/settings.h"
 

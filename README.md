@@ -16,21 +16,25 @@ either the stock `/dev/artosyn_sdio`, or `/dev/arlink0` with ar_libre's own
 `arlink.ko`.
 
 ## How to Build
-It links the Hi3516CV610 SDK's libraries (MPI, ISP and its algorithm
-libraries), which are not part of this repository. Point the build at an ARM
-musl toolchain and at a copy of the SDK:
+It calls the Hi3516CV610 MPI libraries (MPI, ISP and its algorithm
+libraries), which are not part of this repository: the build links against
+stub libraries made from `stubs/vendor-symbols.txt`, and the unit loads the
+libraries from `air/lib`. The MPI interface is in `src/sdk/cv610.h`. Point the
+build at an ARM musl toolchain:
 ```bash
-make CROSS_COMPILE=<toolchain prefix> CV610_SDK_INC=<SDK root> \
-     CV610_SDK_LIB=<SDK libraries> ARLIBRE=<ar_libre checkout>
+make CROSS_COMPILE=<toolchain prefix> ARLIBRE=<ar_libre checkout>
 ```
 `make test` builds and runs the host-side tests (`tests/`) with the host's
 compiler: the protocol header, the ground messages' framing, the checksums,
 JSON and the packet ring. They need neither the toolchain nor ar_libre.
 
-`CV610_SDK_INC` is the SDK's root (its `kernel/include` and
-`libraries/isp/include` trees), `CV610_SDK_LIB` the directory with its `.so`
-files, `ARLIBRE` an ar_libre checkout whose library is built first:
+`ARLIBRE` is an ar_libre checkout whose library is built first:
 `make -C $ARLIBRE/lib CROSS_COMPILE=<toolchain prefix>`.
+
+Code that calls more of the libraries adds what it needs to
+`src/sdk/cv610.h`; a new function fails the link until it is added to
+`stubs/vendor-symbols.txt`, and `make check-stubs CROSS_COMPILE=<prefix>
+VENDOR_LIB=<dir with the libraries>` checks the list against them.
 
 The camera's sensor driver, `libsns_cv2004.so`, is installed
 next to it. kestrel-air loads it
@@ -70,6 +74,8 @@ src/ground/              messages with the ground: framing, commands, periodic r
 src/unit/                the board (Lite or Lite+, key, LEDs, debug commands) and the flight controller link
 src/imu/                 the IMU and its SEI messages
 src/common/              clocks, checksums, JSON
+src/sdk/cv610.h          the MPI interface kestrel-air uses
+stubs/                   the libraries' functions, for the stub libraries it links against
 tests/                   host-side tests (make test)
 ```
 

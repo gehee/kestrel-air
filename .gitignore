@@ -5,3 +5,5 @@
 kestrel-air
 .DS_Store
 tests/run
+stubs/out/
+.sdk-check/

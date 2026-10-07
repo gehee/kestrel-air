@@ -17,13 +17,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "ot_common_3a.h"
-#include "ot_common_isp.h"
-#include "ot_common_video.h"
-#include "ss_mpi_ae.h"
-#include "ss_mpi_awb.h"
-#include "ss_mpi_isp.h"
-#include "ss_mpi_vi.h"
+#include "sdk/cv610.h"
 #include "app/config.h"
 
 #define PIPE 0

@@ -13,10 +13,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "ot_common_venc.h"
-#include "ss_mpi_sys.h"
-#include "ss_mpi_sys_bind.h"
-#include "ss_mpi_venc.h"
+#include "sdk/cv610.h"
 #include "app/config.h"
 #include "app/state.h"
 #include "common/clock.h"

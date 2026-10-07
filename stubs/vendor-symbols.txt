@@ -1,0 +1,101 @@
+# The library functions kestrel-air calls, by the library that has them: one
+# line each, "library function". The build makes a stub of each library from
+# this list (stubs/out: empty functions, the library's SONAME) to link
+# against. A function used but not listed fails the link; `make check-stubs
+# VENDOR_LIB=<dir>` checks the list against the libraries.
+
+libss_mpi.so ss_mpi_sys_exit
+libss_mpi.so ss_mpi_sys_init
+libss_mpi.so ss_mpi_sys_init_pts_base
+libss_mpi.so ss_mpi_sys_set_vi_aiisp_mode
+libss_mpi.so ss_mpi_sys_set_vi_vpss_mode
+libss_mpi.so ss_mpi_vb_exit
+libss_mpi.so ss_mpi_vb_init
+libss_mpi.so ss_mpi_vb_set_cfg
+libss_mpi.so ss_mpi_vb_set_supplement_cfg
+libss_mpi.so ss_mpi_venc_create_chn
+libss_mpi.so ss_mpi_venc_destroy_chn
+libss_mpi.so ss_mpi_venc_enable_idr
+libss_mpi.so ss_mpi_venc_get_chn_attr
+libss_mpi.so ss_mpi_venc_get_cu_pred
+libss_mpi.so ss_mpi_venc_get_fd
+libss_mpi.so ss_mpi_venc_get_fg_protect
+libss_mpi.so ss_mpi_venc_get_h265_vui
+libss_mpi.so ss_mpi_venc_get_rc_param
+libss_mpi.so ss_mpi_venc_get_roi_attr
+libss_mpi.so ss_mpi_venc_get_stream
+libss_mpi.so ss_mpi_venc_query_status
+libss_mpi.so ss_mpi_venc_release_stream
+libss_mpi.so ss_mpi_venc_request_idr
+libss_mpi.so ss_mpi_venc_set_chn_attr
+libss_mpi.so ss_mpi_venc_set_cu_pred
+libss_mpi.so ss_mpi_venc_set_fg_protect
+libss_mpi.so ss_mpi_venc_set_h265_vui
+libss_mpi.so ss_mpi_venc_set_intra_refresh
+libss_mpi.so ss_mpi_venc_set_rc_adv_param
+libss_mpi.so ss_mpi_venc_set_rc_param
+libss_mpi.so ss_mpi_venc_set_roi_attr
+libss_mpi.so ss_mpi_venc_set_scene_mode
+libss_mpi.so ss_mpi_venc_set_slice_split
+libss_mpi.so ss_mpi_venc_start_chn
+libss_mpi.so ss_mpi_venc_stop_chn
+libss_mpi.so ss_mpi_vi_bind
+libss_mpi.so ss_mpi_vi_create_pipe
+libss_mpi.so ss_mpi_vi_destroy_pipe
+libss_mpi.so ss_mpi_vi_disable_chn
+libss_mpi.so ss_mpi_vi_disable_dev
+libss_mpi.so ss_mpi_vi_enable_chn
+libss_mpi.so ss_mpi_vi_enable_dev
+libss_mpi.so ss_mpi_vi_get_pipe_3dnr_attr
+libss_mpi.so ss_mpi_vi_get_pipe_3dnr_param
+libss_mpi.so ss_mpi_vi_get_pipe_param
+libss_mpi.so ss_mpi_vi_set_chn_attr
+libss_mpi.so ss_mpi_vi_set_dev_attr
+libss_mpi.so ss_mpi_vi_set_pipe_3dnr_attr
+libss_mpi.so ss_mpi_vi_set_pipe_3dnr_param
+libss_mpi.so ss_mpi_vi_set_pipe_frame_interrupt_attr
+libss_mpi.so ss_mpi_vi_set_pipe_online_clock
+libss_mpi.so ss_mpi_vi_set_pipe_param
+libss_mpi.so ss_mpi_vi_set_wdr_fusion_grp_attr
+libss_mpi.so ss_mpi_vi_start_pipe
+libss_mpi.so ss_mpi_vi_stop_pipe
+libss_mpi.so ss_mpi_vi_unbind
+libss_mpi.so ss_mpi_vpss_create_grp
+libss_mpi.so ss_mpi_vpss_destroy_grp
+libss_mpi.so ss_mpi_vpss_disable_chn
+libss_mpi.so ss_mpi_vpss_enable_chn
+libss_mpi.so ss_mpi_vpss_set_chn_attr
+libss_mpi.so ss_mpi_vpss_set_chn_low_delay
+libss_mpi.so ss_mpi_vpss_set_grp_frame_interrupt_attr
+libss_mpi.so ss_mpi_vpss_start_grp
+libss_mpi.so ss_mpi_vpss_stop_grp
+
+libss_mpi_isp.so ss_mpi_isp_exit
+libss_mpi_isp.so ss_mpi_isp_get_csc_attr
+libss_mpi_isp.so ss_mpi_isp_get_ctrl_param
+libss_mpi_isp.so ss_mpi_isp_get_sharpen_attr
+libss_mpi_isp.so ss_mpi_isp_init
+libss_mpi_isp.so ss_mpi_isp_mem_init
+libss_mpi_isp.so ss_mpi_isp_run
+libss_mpi_isp.so ss_mpi_isp_set_bind_attr
+libss_mpi_isp.so ss_mpi_isp_set_csc_attr
+libss_mpi_isp.so ss_mpi_isp_set_ctrl_param
+libss_mpi_isp.so ss_mpi_isp_set_pub_attr
+libss_mpi_isp.so ss_mpi_isp_set_sharpen_attr
+
+libss_mpi_ae.so ss_mpi_ae_register
+libss_mpi_ae.so ss_mpi_ae_unregister
+libss_mpi_ae.so ss_mpi_isp_query_exposure_info
+libss_mpi_ae.so ss_mpi_isp_set_ae_route_attr
+
+libss_mpi_awb.so ss_mpi_awb_register
+libss_mpi_awb.so ss_mpi_awb_unregister
+libss_mpi_awb.so ss_mpi_isp_cal_gain_by_temp
+libss_mpi_awb.so ss_mpi_isp_get_wb_attr
+libss_mpi_awb.so ss_mpi_isp_query_wb_info
+libss_mpi_awb.so ss_mpi_isp_set_wb_attr
+
+libss_mpi_sysbind.so ss_mpi_sys_bind
+libss_mpi_sysbind.so ss_mpi_sys_unbind
+
+libbin.so OT_PQ_BIN_ImportBinData
