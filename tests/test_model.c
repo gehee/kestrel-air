@@ -16,9 +16,11 @@ void test_model(void) {
     unsetenv("KA_BOARD_TYPE");
     CHECK(model_init("/nonexistent") == 0);     // nothing at all: a Lite
     CHECK(model_board_type() == 482 && model_prj() == 4 && !model_lite_plus());
+    CHECK(model_cam_imu());                      // the Lite's camera head carries the IMU
 
     CHECK(model_init(write_file("472\n")) == 0); // stock's file
     CHECK(model_board_type() == 472 && model_prj() == 7 && model_lite_plus());
+    CHECK(!model_cam_imu());                     // the Lite+'s has a microphone instead
 
     setenv("KA_BOARD_TYPE", "482", 1);          // the variable wins over the file
     CHECK(model_init(write_file("472\n")) == 0);

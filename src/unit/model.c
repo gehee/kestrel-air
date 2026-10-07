@@ -23,9 +23,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static const struct { int board_type, prj; const char *name; } models[] = {
-    { 482, 4, "Ascent Lite" },
-    { 472, 7, "Ascent Lite+" },
+// cam_imu: an IMU on the camera head (the Lite's ICM-40609-D, on SPI0 through the camera
+// cable). The Lite+'s camera head has a microphone in its place and no IMU anywhere
+// (checked on the board and on every SPI and I2C bus, 2026-10-07).
+static const struct { int board_type, prj, cam_imu; const char *name; } models[] = {
+    { 482, 4, 1, "Ascent Lite" },
+    { 472, 7, 0, "Ascent Lite+" },
 };
 static int cur;
 
@@ -58,4 +61,5 @@ int model_init(const char *board_type_file) {
 int model_board_type(void) { return models[cur].board_type; }
 int model_prj(void) { return models[cur].prj; }
 int model_lite_plus(void) { return models[cur].board_type == 472; }
+int model_cam_imu(void) { return models[cur].cam_imu; }
 const char *model_name(void) { return models[cur].name; }

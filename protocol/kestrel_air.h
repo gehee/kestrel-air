@@ -17,9 +17,11 @@
 
 #define KA_FEAT_LATINFO       0x01   // header bytes 35..41: the air-side times
 #define KA_FEAT_INTRA_REFRESH 0x02   // intra refresh: keyframes only when asked for
-#define KA_FEAT_IMU           0x04   // IMU samples ride in the video as SEI
+#define KA_FEAT_CAM_IMU       0x04   // the camera's own IMU: its samples ride in the video as SEI
 #define KA_FEAT_APCLOCK       0x08   // header 26..29 + 2: the radio clock at encoder out, 1/256 ms
 #define KA_FEAT_MAXBW         0x10   // takes the ground's bandwidth cap (KA_CMD_MAX_BW)
+#define KA_FEAT_FC_IMU        0x20   // the flight controller's IMU instead: MSP_RAW_IMU polled 20 a
+                                     // second, its responses relayed to the ground as all others
 
 // Version message: payload byte offsets of what is ours.
 #define KA_VER_TAG0   1   // 'K'

@@ -101,7 +101,7 @@ The picture size, frame rate and camera angle come from the unit's own
 kestrel-gnd tells kestrel-air from the stock air app, and reads the air side's own
 timing, from bytes the stock app always sends as zero:
 - every slice header: byte 33 `K`, byte 10 the protocol number, byte 11 feature
-  bits (1 air-side times, 2 intra refresh, 4 IMU SEI, 8 us radio-clock stamps); the
+  bits (1 air-side times, 2 intra refresh, 4 camera IMU SEI, 8 us radio-clock stamps, 16 bandwidth cap, 32 flight controller IMU); the
   version message (cmd 0x04) carries the same in bytes 1..4 as `K` `A`, protocol,
   features;
 - bytes 35..41 of each slice header: capture to encoder output, the time the slice

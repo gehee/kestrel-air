@@ -19,6 +19,7 @@
 #include "common/clock.h"
 #include "imu/imu.h"
 #include "kestrel_air.h"
+#include "unit/fc.h"
 #include "radio/radio.h"
 #include "video/video.h"
 #include "app/settings.h"
@@ -214,7 +215,7 @@ int lat_info(void) { static int v = -1; if (v < 0) v = env_int("KA_LATINFO", 1) 
 uint8_t video_features(void) {
     return (uint8_t)((lat_info() ? KA_FEAT_LATINFO | KA_FEAT_APCLOCK : 0) |
                      (ir_rows() > 0 ? KA_FEAT_INTRA_REFRESH : 0) |
-                     (imu_dev ? KA_FEAT_IMU : 0) |
+                     (imu_dev ? KA_FEAT_CAM_IMU : 0) | (fc_imu ? KA_FEAT_FC_IMU : 0) |
                      (radio_bw40_enabled() ? KA_FEAT_MAXBW : 0));
 }
 

@@ -120,7 +120,18 @@ int app_run(volatile char *keep_running) {
     record_init();
 
     // Ours, not stock's: wake the IMU. Without it the video simply carries no SEI.
-    if (imu_dev && imu_start(imu_dev)) puts("app: no IMU: the video goes without its samples");
+    // IMU data (--imu), from where this board has it: the camera's own IMU (cam-imu, the
+    // Lite), else the flight controller's, polled over MSP (fc-imu, the Lite+). A camera IMU
+    // that does not answer falls back to the flight controller's.
+    if (imu_dev && !model_cam_imu()) {
+        printf("app: IMU data from the flight controller (%s: no IMU on the camera)\n", model_name());
+        imu_dev = NULL;
+        fc_imu = 1;
+    } else if (imu_dev && imu_start(imu_dev)) {
+        puts("app: the camera's IMU does not answer: IMU data from the flight controller instead");
+        imu_dev = NULL;
+        fc_imu = 1;
+    }
 
     // The radio. A radio that will not come up leaves the unit running,
     // with the LEDs saying so, as stock does.

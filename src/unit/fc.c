@@ -225,10 +225,13 @@ static void *rx_thread(void *arg) {
     return NULL;
 }
 
+int fc_imu;
+
 static void *poll_thread(void *arg) {
     (void)arg;
     fcpoll_t poll;
-    fcpoll_init(&poll);
+    fcpoll_init(&poll, fc_imu);
+    if (fc_imu) puts("fc: polling the flight controller's IMU (MSP_RAW_IMU, 20 a second)");
     for (;;) {
         uint8_t cmd = fcpoll_next(&poll);
         uint8_t req[6] = { '$', 'M', '<', 0, cmd, cmd };
