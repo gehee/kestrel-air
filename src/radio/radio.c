@@ -435,11 +435,28 @@ int radio_start(const radio_hooks *hk) {
     if (hk) r_hooks = *hk;
     cfg_load();
 
-    while (bbc_hello() <= 0) sleep(1);
+    // A radio that never comes up (no /dev/arlink0: an upload that failed, a
+    // chip that does not answer) fails here after a while, so the caller can
+    // show it and go on (the LED pattern, the flight controller, the pair
+    // button) instead of waiting for good under a green LED.
+    const uint64_t give_up = mono_ms() + 30000;
+    while (bbc_hello() <= 0) {
+        if (mono_ms() > give_up) {
+            fprintf(stderr, "radio: no radio after 30 s\n");
+            return -1;
+        }
+        sleep(1);
+    }
     if (bbc_ioctl_connect(&io)) return -1;
 
     uint8_t q[2] = { 0xff, 0x03 };
-    while (r_get(0x0000, q, 2, st, sizeof(st)) != 0) usleep(100000);   // BB_GET_STATUS-1
+    while (r_get(0x0000, q, 2, st, sizeof(st)) != 0) {                  // BB_GET_STATUS-1
+        if (mono_ms() > give_up) {
+            fprintf(stderr, "radio: the radio did not answer in 30 s\n");
+            return -1;
+        }
+        usleep(100000);
+    }
     if (r_get(0x0000, q, 2, st, sizeof(st)) != 0) return -1;            // BB_GET_STATUS-2
     if (st[0] != 0) {
         fprintf(stderr, "radio: not the AP role (%d)\n", st[0]);
