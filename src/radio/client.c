@@ -183,18 +183,25 @@ void bbc_close(bbc_sock *s) {
 }
 
 // ---- the radio bus watchdog ------------------------------------------------
-// If arlink.ko reports a failed transfer on the radio's bus (bus_errors in its
-// stats; a plain loss of the RF link does not count), the chip is wedged: every
-// later write fails until the unit is rebooted (seen 2026-10-04 under a steady
-// stream, as a CMD53 timeout). Nor does the radio come back to this process if
-// the chip resets (a brown-out): it drops to its boot ROM, arlink.ko uploads
-// the firmware again and a new device appears, while the library's connection
-// stays on the old one and every call fails. Seen here as the stats file going
-// away or the upload count moving. Better a clean restart than a stream that
-// never comes back: exit with status 2, which air/run-kestrel-air.sh answers
-// with a reboot.
+// If transfers on the radio's bus keep failing (bus_errors in arlink.ko's
+// stats; a plain loss of the RF link does not count), the chip is wedged:
+// every later write fails until the unit is rebooted (seen 2026-10-04 under a
+// steady stream, as a CMD53 timeout). One failed transfer is not that: a
+// transfer that fails and the next ones go through is a bus that recovered
+// (a CRC error, say), and rebooting for it cost half a minute of video. So:
+// wedged is bus errors still coming with nothing written, WEDGED_SECS seconds
+// running, or FLAKY_ERRORS of them within FLAKY_SECS. Nor does the radio come
+// back to this process if the chip resets (a brown-out): it drops to its boot
+// ROM, arlink.ko uploads the firmware again and a new device appears, while
+// the library's connection stays on the old one and every call fails. Seen
+// here as the stats file going away or the upload count moving. Better a
+// clean restart than a stream that never comes back: exit with status 2,
+// which air/run-kestrel-air.sh answers with a reboot.
 
 #define ARLINK_STATS "/sys/class/misc/arlink0/stats"
+#define WEDGED_SECS 3
+#define FLAKY_ERRORS 50
+#define FLAKY_SECS 10
 
 static void radio_lost(const char *why) {
     printf("radio: %s: exiting so the unit restarts\n", why);
@@ -205,7 +212,11 @@ static void radio_lost(const char *why) {
 static void *bus_watchdog(void *arg) {
     (void)arg;
     int seen = 0;                       // the running chip's stats were read once
-    unsigned long long uploads0 = 0;
+    unsigned long long uploads0 = 0, errors0 = 0, frames0 = 0;
+    unsigned long long run_errors = 0;  // bus errors since this run of them began
+    uint64_t run_start = 0, last_error = 0;
+    int bad_secs = 0;                   // seconds in a row: bus errors, nothing written
+    char why[96];
     for (;;) {
         sleep(1);
         FILE *f = fopen(ARLINK_STATS, "r");
@@ -215,24 +226,55 @@ static void *bus_watchdog(void *arg) {
             continue;
         }
         char line[96];
-        unsigned long long n, errors = 0, uploads = 0;
+        unsigned long long n, errors = 0, frames = 0, uploads = 0;
         int have_uploads = 0;
         while (fgets(line, sizeof(line), f)) {
             if (sscanf(line, "bus_errors %llu", &n) == 1) errors = n;
+            else if (sscanf(line, "tx_frames %llu", &n) == 1) frames = n;
             else if (sscanf(line, "uploads %llu", &n) == 1) { uploads = n; have_uploads = 1; }
         }
         fclose(f);
-        if (errors) {
-            char why[64];
-            snprintf(why, sizeof(why), "the radio bus failed (%llu errors)", errors);
-            radio_lost(why);
-        }
         if (!have_uploads) continue;
-        if (!seen) {
+        if (!seen) {                    // what came before this process is not counted
             seen = 1;
             uploads0 = uploads;
-        } else if (uploads != uploads0) {
+            errors0 = errors;
+            frames0 = frames;
+            continue;
+        }
+        if (uploads != uploads0)
             radio_lost("the radio's firmware was uploaded again (the chip reset)");
+
+        const uint64_t now = mono_ms();
+        const unsigned long long new_errors = errors - errors0, new_frames = frames - frames0;
+        errors0 = errors;
+        frames0 = frames;
+        if (new_errors) {
+            if (!run_start) {
+                run_start = now;
+                run_errors = 0;
+                printf("radio: the radio bus failed a transfer, watching it\n");
+            }
+            run_errors += new_errors;
+            last_error = now;
+            bad_secs = new_frames ? 0 : bad_secs + 1;
+        } else {
+            bad_secs = 0;
+        }
+        if (bad_secs >= WEDGED_SECS) {
+            snprintf(why, sizeof(why), "the radio bus keeps failing and nothing gets through (%llu errors)",
+                     run_errors);
+            radio_lost(why);
+        }
+        if (run_start && run_errors >= FLAKY_ERRORS && now - run_start <= FLAKY_SECS * 1000) {
+            snprintf(why, sizeof(why), "the radio bus keeps failing (%llu errors in %llu s)", run_errors,
+                     (unsigned long long)((now - run_start) / 1000 + 1));
+            radio_lost(why);
+        }
+        if (run_start && now - last_error >= FLAKY_SECS * 1000) {
+            printf("radio: the radio bus recovered (%llu failed transfers)\n", run_errors);
+            fflush(stdout);
+            run_start = 0;
         }
     }
     return NULL;
