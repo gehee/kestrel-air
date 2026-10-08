@@ -50,8 +50,14 @@ static void *reader(void *arg) {
     bbc_sock *s = arg;
     static __thread uint8_t buf[16384];
     while (s->alive) {
+        const uint64_t t0 = mono_us();
         int n = bb_socket_read(s->fd, buf, sizeof(buf), 100);
-        if (n <= 0) continue;
+        if (n <= 0) {
+            // Nothing at once rather than after the wait: the radio has gone
+            // (the bus watchdog below restarts the unit). No spinning meanwhile.
+            if (mono_us() - t0 < 20000) usleep(100000);
+            continue;
+        }
         pthread_mutex_lock(&s->mtx);
         bbc_rx_cb rx = s->rx;
         void *rx_arg = s->rx_arg;
@@ -180,25 +186,54 @@ void bbc_close(bbc_sock *s) {
 // If arlink.ko reports a failed transfer on the radio's bus (bus_errors in its
 // stats; a plain loss of the RF link does not count), the chip is wedged: every
 // later write fails until the unit is rebooted (seen 2026-10-04 under a steady
-// stream, as a CMD53 timeout). Better a clean restart than a stream that never
-// comes back: exit with status 2, which air/run-kestrel-air.sh answers with a
-// reboot.
+// stream, as a CMD53 timeout). Nor does the radio come back to this process if
+// the chip resets (a brown-out): it drops to its boot ROM, arlink.ko uploads
+// the firmware again and a new device appears, while the library's connection
+// stays on the old one and every call fails. Seen here as the stats file going
+// away or the upload count moving. Better a clean restart than a stream that
+// never comes back: exit with status 2, which air/run-kestrel-air.sh answers
+// with a reboot.
+
+#define ARLINK_STATS "/sys/class/misc/arlink0/stats"
+
+static void radio_lost(const char *why) {
+    printf("radio: %s: exiting so the unit restarts\n", why);
+    fflush(stdout);
+    _exit(2);
+}
 
 static void *bus_watchdog(void *arg) {
     (void)arg;
+    int seen = 0;                       // the running chip's stats were read once
+    unsigned long long uploads0 = 0;
     for (;;) {
         sleep(1);
-        FILE *f = fopen("/sys/class/misc/arlink0/stats", "r");
-        if (!f) continue;
+        FILE *f = fopen(ARLINK_STATS, "r");
+        if (!f) {
+            // Never there: the stock driver, or a radio not up yet.
+            if (seen) radio_lost("the radio's device went away (the chip reset?)");
+            continue;
+        }
         char line[96];
-        unsigned long long n = 0;
-        while (fgets(line, sizeof(line), f))
-            if (sscanf(line, "bus_errors %llu", &n) == 1 && n) {
-                printf("radio: the radio bus failed (%llu errors): exiting so the unit restarts\n", n);
-                fflush(stdout);
-                _exit(2);
-            }
+        unsigned long long n, errors = 0, uploads = 0;
+        int have_uploads = 0;
+        while (fgets(line, sizeof(line), f)) {
+            if (sscanf(line, "bus_errors %llu", &n) == 1) errors = n;
+            else if (sscanf(line, "uploads %llu", &n) == 1) { uploads = n; have_uploads = 1; }
+        }
         fclose(f);
+        if (errors) {
+            char why[64];
+            snprintf(why, sizeof(why), "the radio bus failed (%llu errors)", errors);
+            radio_lost(why);
+        }
+        if (!have_uploads) continue;
+        if (!seen) {
+            seen = 1;
+            uploads0 = uploads;
+        } else if (uploads != uploads0) {
+            radio_lost("the radio's firmware was uploaded again (the chip reset)");
+        }
     }
     return NULL;
 }
