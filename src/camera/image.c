@@ -79,16 +79,78 @@ static void load_stock_tables(void) {
     if (!have_stock) printf("image: %s not the expected build: no 3DNR presets or manual sharpen\n", STOCK_APP);
 }
 
+// Ours: the stock bins are made for the whole 1920x1080 at their rate, and
+// importing one sets that image mode again (the ISP's public attributes are
+// in it): with 864p120's 1536x864 window, that put the sensor back in its
+// 100 fps mode under a pipeline built for the window - a broken picture. The
+// pipeline's size (a window) and rate (120) are written over the bin's own
+// where the stock bins keep them (u32 pairs at 0x1c and 0x50, u16 pairs at
+// 0x58, 0x2d6 and 0x332 - each only where it holds 1920x1080: the OS02K10's
+// 0x332 holds 2560x1440 - floats at 0x24 and 0x201a8; found against the 60
+// and 100 fps bins of both sensors), if the whole picture's are there, and
+// its checksums made again.
+static void pq_bin_fit(uint8_t *buf, long size) {
+    int w, h;
+    cv610_capture_size(&w, &h);
+    if (size < 0x201ac) return;
+    const int window = !(w == 1920 && h == 1080);
+    float r0;
+    memcpy(&r0, buf + 0x24, 4);
+    if (!window && (int)(r0 + 0.5f) == fps) return;
+    uint32_t a, b;
+    memcpy(&a, buf + 0x1c, 4);
+    memcpy(&b, buf + 0x20, 4);
+    if (a != 1920 || b != 1080) {
+        printf("image: the bin's size is %ux%u, not 1920x1080: not fitted to %dx%d\n", a, b, w, h);
+        return;
+    }
+    const uint32_t w32 = (uint32_t)w, h32 = (uint32_t)h;
+    const uint16_t w16 = (uint16_t)w, h16 = (uint16_t)h;
+    const float r = (float)fps;
+    static const int pairs32[] = { 0x1c, 0x50 }, pairs16[] = { 0x58, 0x2d6, 0x332 }, rates[] = { 0x24, 0x201a8 };
+    if (window) {
+        static const uint32_t full32[2] = { 1920, 1080 };
+        static const uint16_t full16[2] = { 1920, 1080 };
+        for (unsigned i = 0; i < 2; i++)
+            if (!memcmp(buf + pairs32[i], full32, 8)) { memcpy(buf + pairs32[i], &w32, 4); memcpy(buf + pairs32[i] + 4, &h32, 4); }
+        for (unsigned i = 0; i < 3; i++)
+            if (!memcmp(buf + pairs16[i], full16, 4)) { memcpy(buf + pairs16[i], &w16, 2); memcpy(buf + pairs16[i] + 2, &h16, 2); }
+    }
+    for (unsigned i = 0; i < 2; i++) memcpy(buf + rates[i], &r, 4);
+    // Each of its sections (count at 0; then a 16-byte header with the data's
+    // length at +12, the data) ends with the CRC-32 of header and data, which
+    // the import checks: made again.
+    uint32_t nsec;
+    memcpy(&nsec, buf, 4);
+    long p = 4;
+    for (uint32_t i = 0; i < nsec && p + 16 <= size; i++) {
+        uint32_t len;
+        memcpy(&len, buf + p + 12, 4);
+        const long end = p + 16 + (long)len;
+        if (end + 4 > size) break;
+        uint32_t c = 0xffffffffu;
+        for (long k = p; k < end; k++) {
+            c ^= buf[k];
+            for (int b = 0; b < 8; b++) c = (c >> 1) ^ (0xedb88320u & (0u - (c & 1)));
+        }
+        c = ~c;
+        memcpy(buf + end, &c, 4);
+        p = end + 4;
+    }
+    printf("image: bin fitted to %dx%d@%d\n", w, h, fps);
+}
+
 // pq_bin_load: the tuning for gain level xg (0..3), frame rate, orientation
 // and day (scene 0) or night (2).
 static int pq_bin_load(int xg) {
     char path[160];
+    const int tfps = fps > 100 ? 100 : fps;   // ours: 864p120 and 864p144 take the 100 fps tuning
     // The CV2004's bins are made per orientation; the OS02K10's are not.
     if (cv610_sensor_angle_tuning())
-        snprintf(path, sizeof(path), "%s/cam_%s_%dfps_%d_xg%d_%s.bin", TUNING_DIR, cv610_sensor_name(), fps,
+        snprintf(path, sizeof(path), "%s/cam_%s_%dfps_%d_xg%d_%s.bin", TUNING_DIR, cv610_sensor_name(), tfps,
                  angle ? 180 : 0, xg + 1, scene == 2 ? "night" : "day");
     else
-        snprintf(path, sizeof(path), "%s/cam_%s_%dfps_xg%d_%s.bin", TUNING_DIR, cv610_sensor_name(), fps,
+        snprintf(path, sizeof(path), "%s/cam_%s_%dfps_xg%d_%s.bin", TUNING_DIR, cv610_sensor_name(), tfps,
                  xg + 1, scene == 2 ? "night" : "day");
     FILE *f = fopen(path, "rb");
     if (!f) {
@@ -101,6 +163,7 @@ static int pq_bin_load(int xg) {
     uint8_t *buf = size >= 10 ? malloc(size) : NULL;
     int ret = -1;
     if (buf && fread(buf, 1, size, f) == (size_t)size) {
+        pq_bin_fit(buf, size);
         pq_bin_param p = { 1, 1, PIPE, { 0, 0, 0 } };
         if (OT_PQ_BIN_ImportBinData(&p, buf, (uint32_t)size) == 0) {
             // The bin's AE route: the only exposure limits stock sets.

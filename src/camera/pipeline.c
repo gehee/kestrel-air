@@ -30,8 +30,10 @@
 
 
 // The sensor: Ascents ship with either of two, both 1920x1080 on I2C 0x36
-// with 16-bit register addresses. The capture is always the full 1080p;
-// VPSS scales to the encoded size. They are told apart as the stock app
+// with 16-bit register addresses. The capture is the full 1080p but at 120
+// fps (864p120: a window of each, see cv610_has_864p120) and 144 (864p144:
+// the OS02K10's 1536x864 window, cv610_has_864p144); VPSS scales to the
+// encoded size. They are told apart as the stock app
 // does, by two ID registers, the CV2004 first.
 typedef struct {
     const char *name, *lib, *obj;
@@ -41,11 +43,13 @@ typedef struct {
     int type;                     // the sensor type the stock app reports to the ground
     int angle_tuning;             // the tuning bins' names carry the orientation
     int bayer_follows_angle;      // the ISP's bayer order turns with the orientation
+    int win120_w, win120_h;       // ours: its window at 120 fps (864p120)
+    int win144_w, win144_h;       // ours: its window at 144 fps (864p144; 0: none)
 } cv610_sensor;
 static const cv610_sensor sensors[] = {
-    { "cv2004",  "libsns_cv2004.so",  "g_sns_cv2004_obj",  2004, 0x3002, { 0x04, 0x20 }, 1, 1, 1 },
+    { "cv2004",  "libsns_cv2004.so",  "g_sns_cv2004_obj",  2004, 0x3002, { 0x04, 0x20 }, 1, 1, 1, 1536, 864, 0, 0 },
     // Stock leaves the ISP's order at BGGR at both orientations.
-    { "os02k10", "libsns_os02k10.so", "g_sns_os02k10_obj", 1480, 0x300a, { 0x53, 0x02 }, 7, 0, 0 },
+    { "os02k10", "libsns_os02k10.so", "g_sns_os02k10_obj", 1480, 0x300a, { 0x53, 0x02 }, 7, 0, 0, 1856, 1044, 1536, 864 },
 };
 static const cv610_sensor *sns = &sensors[0];
 const char *cv610_sensor_name(void) { return sns->name; }
@@ -53,8 +57,11 @@ int cv610_sensor_type(void) { return sns->type; }
 int cv610_sensor_angle_tuning(void) { return sns->angle_tuning; }
 #define SNS_I2C    0
 #define SNS_ADDR   0x36
-#define CAP_W      1920
-#define CAP_H      1080
+// Ours: the sensor's output - its whole 1920x1080, or at 120 or 144 fps its
+// driver's window (cv610_has_864p120, cv610_has_864p144).
+static int cap_w = 1920, cap_h = 1080;
+#define CAP_W      cap_w
+#define CAP_H      cap_h
 
 #define MIPI_DEV   1          // combo device 1: the 2+2 split's port 1, lanes {1,3}
 #define VI_DEV     1
@@ -324,6 +331,87 @@ static int sensor_detect(void) {
     return 1;
 }
 
+void cv610_capture_size(int *w, int *h) { *w = cap_w; *h = cap_h; }
+
+// Ours: how long the sensor takes to read the picture's rows (the capture's,
+// whole or window), us: its row time by its line length - the CV2004's 624
+// (8.889 us, x CV2004_HMAX / 624 when the driver is given a shorter one), the
+// OS02K10's 831 at 108.3 MHz (7.673 us; 805 in its 120 and 144 fps window
+// modes) - times
+// the rows. The VI's own line
+// measure agrees (4221 and 3654 ticks of its 475 MHz, 2026-10-12). The
+// ground splits its "Enc" into this and the rest.
+uint32_t cv610_readout_us(void) {
+    double row_us;
+    if (sns == &sensors[0]) {
+        const char *e = getenv("CV2004_HMAX");
+        const long h = e ? strtol(e, NULL, 0) : 0;
+        row_us = 8.8889 * (h >= 560 && h <= 624 ? (double)h / 624.0 : 1.0);
+    } else {
+        row_us = (fps == 144 || fps == 120 ? 805.0 : 831.0) / 108.3;   // its window modes' line
+    }
+    return (uint32_t)(row_us * cap_h + 0.5);
+}
+
+// Ours: 864p120 - 1536x864 at 120 fps, from a window of the sensor read at
+// 120 fps: the CV2004's 1536x864 (80%: 864 rows fit its 120 fps frame where
+// 1080 do not), the OS02K10's 1856x1044 (97%: the ISP takes ~250 Mpx a second
+// of a line, which a whole 1920 pixels exceed at 120 fps), scaled. Only
+// fpvOS's drivers have those modes (they say so with cv2004_864p120 and
+// os02k10_120fps); the sensor is the one found last (cv610_sensor_probe finds
+// it before the first pipeline).
+int cv610_has_864p120(void) {
+    static const char *const mark[] = { "cv2004_864p120", "os02k10_120fps" };
+    static int known[] = { -1, -1 };
+    const int i = (int)(sns - sensors);
+    if (known[i] < 0) {
+        void *h = dlopen(sns->lib, RTLD_NOW);
+        known[i] = h && dlsym(h, mark[i]) != NULL;
+        if (h) dlclose(h);
+        printf("camera: 864p120 %s (%s)\n", known[i] ? "available" : "not in this driver", sns->name);
+    }
+    return known[i];
+}
+
+// Ours: 864p144 - 1536x864 at 144 fps, for 144 Hz screens: the OS02K10's
+// 1536x864 window (80%, centred) read at 144 fps, where fpvOS's driver has it
+// (os02k10_144fps). The CV2004 has none: at its fixed row time a 144 fps
+// frame holds ~780 rows, and a window must end before the frame does - a
+// 720-row one would sit well above the centre.
+int cv610_has_864p144(void) {
+    static int known[] = { -1, -1 };
+    const int i = (int)(sns - sensors);
+    if (known[i] < 0) {
+        known[i] = 0;
+        if (sns->win144_w) {
+            void *h = dlopen(sns->lib, RTLD_NOW);
+            known[i] = h && dlsym(h, "os02k10_144fps") != NULL;
+            if (h) dlclose(h);
+        }
+        printf("camera: 864p144 %s (%s)\n", known[i] ? "available" : sns->win144_w ? "not in this driver" : "not on this sensor",
+               sns->name);
+    }
+    return known[i];
+}
+
+// Before the first pipeline: which sensor this is, so what it can run is
+// known (864p120). Its clock and reset first, as stock does and as
+// mipi_setup does again later. 0: a sensor kestrel-air does not know.
+int cv610_sensor_probe(void) {
+    int fd = open("/dev/ot_mipi_rx", O_RDWR);
+    if (fd >= 0) {
+        lane_divide_mode_t hs = LANE_DIVIDE_MODE_1;
+        sns_clk_source_t clk = 0;
+        sns_rst_source_t rst = 0;
+        if (ioctl(fd, OT_MIPI_SET_HS_MODE, &hs) || ioctl(fd, OT_MIPI_ENABLE_SENSOR_CLOCK, &clk) ||
+            ioctl(fd, OT_MIPI_RESET_SENSOR, &rst) || ioctl(fd, OT_MIPI_UNRESET_SENSOR, &rst))
+            fprintf(stderr, "camera: sensor clock for the probe: %s\n", strerror(errno));
+        close(fd);
+        usleep(50000);
+    }
+    return sensor_detect();
+}
+
 static int isp_setup(void) {
     ot_isp_sns_commbus bus;
     ot_isp_bind_attr bind;
@@ -437,6 +525,8 @@ int cv610_pipeline_create(char sensor, short width, short height, char framerate
     out_w = width;
     out_h = height;
     fps = (unsigned char)framerate;
+    cap_w = fps == 144 && sns->win144_w ? sns->win144_w : fps == 120 ? sns->win120_w : 1920;
+    cap_h = fps == 144 && sns->win144_w ? sns->win144_h : fps == 120 ? sns->win120_h : 1080;
     printf("camera: capture %dx%d@%d -> %dx%d\n", CAP_W, CAP_H, fps, out_w, out_h);
 
     if (sys_setup() || mipi_setup() || vi_setup() || isp_setup() || vpss_setup())

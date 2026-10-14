@@ -141,10 +141,12 @@ static void first_line(const char *path, char *out, size_t cap) {
     fclose(f);
 }
 
-// KA_MSG_INFO: what this air unit is and runs, for the ground to show.
+// KA_MSG_INFO: what this air unit is and runs, for the ground to show, and
+// (ours, they change as it runs) the sensor's readout and exposure times.
 static void send_info(void) {
     static char m[512];
     static int len;
+    char out[600];
     if (!len) {
         char dir[256] = "", path[300], os[64], radio[64], stock[128] = "", line[128];
         ssize_t n = readlink("/proc/self/exe", dir, sizeof(dir) - 1);
@@ -179,7 +181,14 @@ static void send_info(void) {
             printf(" %.*s", (int)(e - k), k);
         printf("\n");
     }
-    ground_send((const uint8_t *)m, len);
+    memcpy(out, m, (size_t)len);
+    image_isp_info isp;
+    image_get_info(&isp);
+    // 864p144 has no feature bit (the header's byte is full): said here.
+    const int n = len + snprintf(out + len, sizeof(out) - (size_t)len, "readout=%u\nexposure=%u\n%s",
+                                 cv610_readout_us(), (unsigned)isp.exp_time_us,
+                                 cv610_has_864p144() ? "864p144=1\n" : "");
+    ground_send((const uint8_t *)out, n < (int)sizeof(out) ? n : (int)sizeof(out) - 1);
 }
 
 static uint8_t period_counter;

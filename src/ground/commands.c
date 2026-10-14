@@ -27,10 +27,14 @@ static uint8_t last_applied[49];
 static int have_last;
 static int iframe_req_cnt, iframe_reconnects = -1;
 
+// The sizes and rates a ground's stored video config may ask for. Ours too:
+// 1536x864 (864p120, 864p144) at 144 - without them a goggle's stored 864p
+// mode was refused at link-up ("init cfg invalid (-1)") and the camera stayed
+// on the mode saved here, whatever the goggle had chosen.
 static int res_ok(int w, int h, int fps) {
     int r = (w == 1920 && h == 1080) || (w == 1280 && h == 720) || (w == 960 && h == 540) ||
-            (w == 2560 && h == 1440);
-    int f = fps == 25 || fps == 30 || fps == 50 || fps == 60 || fps == 100 || fps == 120;
+            (w == 2560 && h == 1440) || (w == 1536 && h == 864);
+    int f = fps == 25 || fps == 30 || fps == 50 || fps == 60 || fps == 100 || fps == 120 || fps == 144;
     return r && f;
 }
 

@@ -22,6 +22,8 @@
 #define KA_FEAT_MAXBW         0x10   // takes the ground's bandwidth cap (KA_CMD_MAX_BW)
 #define KA_FEAT_FC_IMU        0x20   // the flight controller's IMU instead: MSP_RAW_IMU polled 20 a
                                      // second, its responses relayed to the ground as all others
+#define KA_FEAT_864P120       0x40   // 864p120: asked for 1536x864 at 120 (SET_CHN_RES), the camera
+                                     // runs a 1536x864 window of its sensor at 120 fps
 
 // Version message: payload byte offsets of what is ours.
 #define KA_VER_TAG0   1   // 'K'
@@ -34,8 +36,10 @@
 // "key=value" lines, '\n' after each. Keys: app (kestrel-air), ver (its
 // version), os (the fpvOS image), radio (ar_libre), kernel, stock (the stock
 // firmware under it, APP_VERSION), board (stock's board type), model, sensor,
-// hw (the board-ID version, as in the version message). A key may be missing;
-// a ground that does not know one skips it.
+// hw (the board-ID version, as in the version message), readout (us: the
+// sensor's readout of the picture's rows in the mode running now), exposure
+// (us: each row's, as AE has it now). A key may be missing; a ground that
+// does not know one skips it.
 #define KA_MSG_INFO 0x50
 
 // ---- ground -> air commands that are ours ------------------------------------

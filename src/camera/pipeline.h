@@ -13,3 +13,10 @@ void cv610_set_low_delay_lines(int lines);   // VPSS -> encoder, before cv610_pi
 const char *cv610_sensor_name(void);         // "cv2004", "os02k10": also the tuning bins' names
 int  cv610_sensor_type(void);                // the type the stock app reports to the ground
 int  cv610_sensor_angle_tuning(void);        // the tuning bins' names carry the orientation
+// Ours: the sensor's output now (1920x1080, or 1536x864 at 120 fps), and
+// whether the camera does 864p120 (its 1536x864 window at 120 fps).
+void cv610_capture_size(int *w, int *h);
+int  cv610_has_864p120(void);
+int  cv610_has_864p144(void);                // ours: and 864p144 (the OS02K10's 1536x864 window at 144 fps)
+int  cv610_sensor_probe(void);               // ours: find the sensor before the first pipeline
+uint32_t cv610_readout_us(void);             // ours: the sensor's readout of the picture's rows, us
