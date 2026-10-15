@@ -68,7 +68,11 @@ void radio_set_max_kbps(int kbps) {
 // bottom, so 8 s after going up are left alone. Off unless KA_BW40=1 (2026-10-05:
 // every step to or from 40 re-forms the link - about 0.7 s without picture on
 // the goggle - so for now the link stays on the radio's own 20); the goggle's
-// cap at 20 MHz (radio_set_max_bw) also keeps it there.
+// cap at 20 MHz (radio_set_max_bw) also keeps it there. Leave it off with a
+// goggle whose radio config takes the link to 40 by itself (fpvOS's, from
+// 2026-10-14: bw_auto up to 40): the radio widens at link-up while the MCS is
+// still low, this steps back to 20 at MCS 3 or less, the radio widens again,
+// and every step re-forms the link - video was lost.
 int radio_bw40_enabled(void) {
     static int on = -1;
     if (on < 0) on = env_int("KA_BW40", 0) == 1;

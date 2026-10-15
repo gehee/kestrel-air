@@ -225,6 +225,9 @@ static void handle_event(int type, const uint8_t *d, uint32_t len) {
         printf("), mcs=%d, throughput=%d kbps\n", r_mcs, throughput);
         break;
     case 2:   // channel changed: {slot, dir, cur, prev}
+        printf("radio: channel event:");
+        for (uint32_t i = 0; i < len && i < 8; i++) printf(" %02x", d[i]);
+        printf("\n");
         if (len >= 4 && !r_hop_en && r_in_list(r_air_freq, r_common_list, 1) && d[1] == 1)
             r_set_work_chan_list();
         break;
@@ -345,7 +348,10 @@ int radio_tgt_bitrate(void) {
     kbps = relay > 0 && relay < kbps ? relay * fps_coef / 10 : kbps * fps_coef / 10;
     if (strategy == 0) kbps = kbps * 82 / 100;
     if (r_max_kbps > 0 && kbps > r_max_kbps) kbps = r_max_kbps;   // ours: the goggle's cap
-    return kbps > 20000 ? 20000 : kbps;
+    // Ours: 20 Mbps at most on its own; a cap the goggle sets may go to 25
+    // (a 40 MHz link at MCS 10 carries 44.9 Mbps).
+    const int ceiling = r_max_kbps > 20000 ? (r_max_kbps < 25000 ? r_max_kbps : 25000) : 20000;
+    return kbps > ceiling ? ceiling : kbps;
 }
 
 int radio_ringbuf_left(void) {
@@ -411,6 +417,12 @@ void radio_period_info(radio_period *p) {
 int radio_chan_info(uint8_t *reply, int max) {
     uint32_t got = 0;
     if (bbc_ioctl(&io, 0x0100000a, NULL, 0, reply, max, &got, IOCTL_MS) != 0) return -1;
+    static int last_work = -1;
+    if (reply[3] != last_work) {
+        printf("radio: channel info: %u channels, auto %u, bytes[2..3] %u %u (%u kHz), pinned %d to %u kHz\n",
+               reply[0], reply[1], reply[2], reply[3], reply[3] < r_nfreq ? r_freq[reply[3]] : 0, r_freq_pinned, r_air_freq);
+        last_work = reply[3];
+    }
     // The channel monitor: back to the ground's channel if the radio left it.
     if (!r_hop_en && r_connected && r_freq_pinned == 1 && reply[3] < r_nfreq && r_freq[reply[3]] != r_air_freq) {
         printf("radio: off the ground's channel - back to it\n");

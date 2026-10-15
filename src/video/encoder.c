@@ -365,7 +365,7 @@ void set_venc_bitrate(int f, int kbps, int reason) {
     if (kbps == sb_last_kbps && f == sb_last_fps) return;
     sb_last_kbps = kbps;
     sb_last_fps = f;
-    int k = kbps < 128 ? 128 : kbps > 20000 ? 20000 : kbps;
+    int k = kbps < 128 ? 128 : kbps > 25000 ? 25000 : kbps;   // radio_tgt_bitrate keeps it to 20 unless the goggle allows more
     if (video_verbose) printf("video: encoder chn %d, %d fps, %d kbps (reason %d)\n", CHN, f, k, reason);
     param_set(f, k);
     roi_update(1);

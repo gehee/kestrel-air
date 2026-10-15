@@ -123,7 +123,7 @@ timing, from bytes the stock app always sends as zero:
 | `KA_SLICE_COUNT` | slices a picture; the CTU rows each follow from the height | `2` above 60 fps, `4` at 60 and below |
 | `KA_STRATEGY` | the video strategy, whatever the ground's settings say (0 low delay, 2 wing) | the ground's |
 | `KA_DUMP`, `KA_DUMP_KB` | write the first `KA_DUMP_KB` KiB sent to a file, as an Annex-B stream | off, `8192` |
-| `KA_BW40` | `1`: widen the video link to 40 MHz on its own when the link is strong (each change re-forms the link, about 0.7 s without picture), and take the goggle's Max Bandwidth cap | off |
+| `KA_BW40` | `1`: widen the video link to 40 MHz on its own when the link is strong (each change re-forms the link, about 0.7 s without picture), and take the goggle's Max Bandwidth cap. Leave it off with an fpvOS goggle: its radio takes the link to 40 MHz by itself, and the two fight | off |
 
 Unset or empty means the default. kestrel-air logs the `KA_*` variables set
 when it starts, and names any it does not know; the full list is in

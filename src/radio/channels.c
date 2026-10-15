@@ -61,17 +61,19 @@ int radio_set_freq(int hop, uint32_t f) {
     }
     uint8_t m = hop ? 1 : 0;
     usleep(200000);
-    r_set(0x0005, &m, 1);
+    int rc_mode = r_set(0x0005, &m, 1);
     r_hop_en = hop;
     usleep(150000);
     r_set_work_chan_list();
     usleep(150000);
     r_freq_pinned = 1;
+    int rc_chan = 0;
     if (!hop) {
         uint8_t c[2] = { 1, (uint8_t)idx };
-        r_set(0x0006, c, 2);
+        rc_chan = r_set(0x0006, c, 2);
         r_air_freq = f;
     }
+    printf("radio: channel %u kHz (index %d, hop %d): mode -> %d, chan -> %d\n", f, idx, hop, rc_mode, rc_chan);
     return 0;
 }
 
