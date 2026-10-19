@@ -41,6 +41,14 @@
 // (us: each row's, as AE has it now). A key may be missing; a ground that
 // does not know one skips it.
 #define KA_MSG_INFO 0x50
+// The radio's TDD frame on the radio clock, once a second while known
+// (radio/frameclock.c): u8 a generation (new each time the frame's edges are
+// counted again), u32 LE the frame (us x 256, whole 0.64 us ticks), u32 LE the
+// radio clock (us x 256, modulo the frame) where its video part ends, u8 the
+// radio frames a picture would take under a frame lock (0: none here). The
+// slices' radio-clock stamps are then on the frame's edges, to some 10-20 us;
+// a ground that finds the same edges on its own radio reads the same clock.
+#define KA_MSG_FRAME 0x51
 
 // ---- ground -> air commands that are ours ------------------------------------
 #define KA_CMD_MAX_KBPS 0x40   // u32 LE: video bitrate cap in kbps, 0 = none

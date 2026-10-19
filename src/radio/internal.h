@@ -32,6 +32,17 @@ void r_bw_tick(uint64_t t);
 // Requests to the radio (radio.c).
 int  r_get(uint16_t id, const void *in, uint32_t inlen, void *out, uint32_t outlen);
 int  r_set(uint16_t id, const void *in, uint32_t inlen);
+// Open8030's frame info (request 0x0c5a0035, its ar_rf_frame_info): the AP's
+// clock at its latest frame interrupt (IRQ 5). Only asked of Open8030.
+typedef struct {
+    uint32_t version, flags, frames, frame_ticks, since_us, ap_us_lo, ap_us_hi;
+    uint32_t taken, rejected;
+    int32_t residual_us;
+    uint32_t width, frame_mode, sent;
+} r_frame_info_t;
+int  r_frame_info(r_frame_info_t *out);
+// The radio runs Open8030 (the firmware start.sh had arlink load).
+int  r_is_open8030(void);
 int  r_dispatch(uint8_t cmd, const uint8_t *args, int nargs);
 void r_set_rf_path_b(int enable);
 void r_set_adc_meas(int chn, uint32_t period_ms);

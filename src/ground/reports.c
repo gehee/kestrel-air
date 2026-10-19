@@ -169,12 +169,18 @@ static void send_info(void) {
         if (f) fclose(f);
         struct utsname u;
         if (uname(&u)) u.release[0] = '\0';
+        // The radio's firmware, as start.sh had arlink load it: Open8030 (its
+        // width switches across 40 MHz keep the link) or stock's (the goggle
+        // keeps it at 20 MHz then).
+        char fw[64] = "";
+        first_line("/sys/module/arlink/parameters/fw_name", fw, sizeof(fw));
         m[0] = KA_MSG_INFO;
         len = 1 + snprintf(m + 1, sizeof(m) - 1,
                            "app=kestrel-air\nver=%s\nos=%s\nradio=%s\nkernel=%s\nstock=%s\n"
-                           "board=%d\nmodel=%s\nsensor=%s\nhw=0x%02x\n",
+                           "board=%d\nmodel=%s\nsensor=%s\nhw=0x%02x\nradiofw=%s\n",
                            KA_VERSION, os, radio, u.release, stock,
-                           model_board_type(), model_name(), cv610_sensor_name(), hw_ver);
+                           model_board_type(), model_name(), cv610_sensor_name(), hw_ver,
+                           strstr(fw, "open8030") ? "open8030" : "stock");
         if (len > (int)sizeof(m)) len = sizeof(m);
         printf("ground: info:");
         for (char *k = m + 1, *e; k < m + len && (e = memchr(k, '\n', (size_t)(m + len - k))); k = e + 1)

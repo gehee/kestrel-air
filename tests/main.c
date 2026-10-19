@@ -13,6 +13,7 @@ int main(void) {
     test_model();
     test_slices();
     test_fcpoll();
+    test_frame_edge();
     printf("%d checks, %d failed\n", checks, failures);
     return failures != 0;
 }

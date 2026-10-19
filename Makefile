@@ -93,13 +93,14 @@ check-sdk-header: need-sdk
 -include $(OBJS:.o=.d)
 
 # Host-side tests of what needs no SDK and no radio: the protocol header, the
-# ground messages' framing, the checksums, JSON and the packet ring.
+# ground messages' framing, the checksums, JSON, the packet ring and the
+# radio frame's edge.
 HOSTCC ?= cc
 TEST_SRCS = $(wildcard tests/*.c) $(SRC_DIR)/ground/frame.c $(SRC_DIR)/common/crc.c \
 	$(SRC_DIR)/common/json.c $(SRC_DIR)/video/ring.c $(SRC_DIR)/app/settings.c \
 	$(SRC_DIR)/unit/model.c $(SRC_DIR)/video/slices.c $(SRC_DIR)/unit/fcpoll.c
 tests/run: $(TEST_SRCS) $(wildcard tests/*.h) $(wildcard protocol/*.h)
-	$(HOSTCC) -O1 -g -Wall -Wextra -pthread -I$(SRC_DIR) -Iprotocol -Itests -o $@ $(TEST_SRCS)
+	$(HOSTCC) -O1 -g -Wall -Wextra -pthread -I$(SRC_DIR) -Iprotocol -Itests -o $@ $(TEST_SRCS) -lm
 test: tests/run
 	./tests/run
 

@@ -18,6 +18,7 @@
 #include "camera/image.h"
 #include "imu/imu.h"
 #include "app/state.h"
+#include "radio/frameclock.h"
 #include "radio/radio.h"
 #include "kestrel_air.h"
 
@@ -122,6 +123,20 @@ static uint32_t radio_offset(uint32_t now) {
 // a reconnect: a new link is a new clock. 0 until the first sample.
 static int ap_valid;
 static int64_t ap_off_us;
+static void ap_track(void);
+
+// The radio clock at our time t, us: on the frame's edges when they are
+// known (radio/frameclock.c), else from the ms readings below. 0: known. The
+// ground reads its own radio's edges the same way, so the two agree to some
+// 10-20 us instead of drifting apart between ms re-syncs.
+static int ap_at(uint64_t t, uint64_t *ap) {
+    if (frameclock_ap_us(t, ap) == 0) return 0;
+    ap_track();
+    if (!ap_valid) return -1;
+    *ap = t - (uint64_t)ap_off_us;
+    return 0;
+}
+
 static void ap_track(void) {
     static uint64_t last;
     static int reconnects = -1;
@@ -277,11 +292,13 @@ static void *read_thread(void *arg) {
         uint32_t rt;
         if (lat_info()) {
             // Ours: the radio clock when the encoder handed the slice out, to 1/256 ms.
-            ap_track();
-            uint64_t ap = ap_valid ? t_got - (uint64_t)ap_off_us : 0;
-            rt = (uint32_t)(ap / 1000);
-            h[KA_H_APFRAC] = (uint8_t)(ap % 1000 * 256 / 1000);
-            if (!ap_valid) rt = now - radio_offset(now), h[KA_H_APFRAC] = 128;
+            uint64_t ap = 0;
+            if (ap_at(t_got, &ap) == 0) {
+                rt = (uint32_t)(ap / 1000);
+                h[KA_H_APFRAC] = (uint8_t)(ap % 1000 * 256 / 1000);
+            } else {
+                rt = now - radio_offset(now), h[KA_H_APFRAC] = 128;
+            }
         } else {
             rt = now - radio_offset(now);
         }

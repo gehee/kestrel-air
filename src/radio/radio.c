@@ -10,6 +10,7 @@
 #include "camera/image.h"
 #include "app/state.h"
 #include "radio/radio.h"
+#include "radio/frameclock.h"
 #include "radio/internal.h"
 #include "unit/model.h"
 
@@ -76,6 +77,26 @@ static int8_t ofs_a, ofs_b;
 
 int r_get(uint16_t id, const void *in, uint32_t inlen, void *out, uint32_t outlen) {
     return bbc_ioctl(&io, 0x01000000 | id, in, inlen, out, outlen, NULL, IOCTL_MS);
+}
+
+int r_frame_info(r_frame_info_t *out) {
+    uint32_t got = 0;
+    const int r = bbc_ioctl(&io, 0x0c5a0035, NULL, 0, out, sizeof(*out), &got, 300);
+    return r == 0 && got >= sizeof(*out) && out->version >= 1 ? 0 : -1;
+}
+
+int r_is_open8030(void) {
+    static int known = -1;
+    if (known < 0) {
+        char fw[64] = "";
+        FILE *f = fopen("/sys/module/arlink/parameters/fw_name", "r");
+        if (f) {
+            if (!fgets(fw, sizeof(fw), f)) fw[0] = '\0';
+            fclose(f);
+        }
+        known = strstr(fw, "open8030") != NULL;
+    }
+    return known;
 }
 
 int r_set(uint16_t id, const void *in, uint32_t inlen) {
@@ -196,6 +217,7 @@ static void handle_event(int type, const uint8_t *d, uint32_t len) {
             reconnect_count++;
             r_connected = 1;
             video_link(1);
+            frameclock_reframe();             // a new link, its own frame
         } else {
             if (!disconnect_at) disconnect_at = mono_ms() + 1000;   // connected stays set for up to 1 s
             video_link(0);
@@ -220,6 +242,7 @@ static void handle_event(int type, const uint8_t *d, uint32_t len) {
             prev_mcs = m;
         }
         if (len >= 3 && d[0] == 0 && d[1] == 0 && d[2] <= 5) r_bw_cur = d[2];
+        frameclock_reframe();                 // across 40 MHz, another frame
         printf("radio: bandwidth changed (event %u bytes:", len);
         for (uint32_t i = 0; i < len && i < 8; i++) printf(" %02x", d[i]);
         printf("), mcs=%d, throughput=%d kbps\n", r_mcs, throughput);
@@ -526,6 +549,8 @@ int radio_start(const radio_hooks *hk) {
         pthread_create(&t, NULL, timer_thread, NULL);
         pthread_detach(t);
     }
+
+    frameclock_start();              // the radio clock off the radio's frame (radio/frameclock.c)
 
     radio_set_mcs_policy();
 
