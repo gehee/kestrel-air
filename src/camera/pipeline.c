@@ -335,18 +335,14 @@ void cv610_capture_size(int *w, int *h) { *w = cap_w; *h = cap_h; }
 
 // Ours: how long the sensor takes to read the picture's rows (the capture's,
 // whole or window), us: its row time by its line length - the CV2004's 624
-// (8.889 us, x CV2004_HMAX / 624 when the driver is given a shorter one), the
-// OS02K10's 831 at 108.3 MHz (7.673 us; 805 in its 120 and 144 fps window
-// modes) - times
-// the rows. The VI's own line
-// measure agrees (4221 and 3654 ticks of its 475 MHz, 2026-10-12). The
-// ground splits its "Enc" into this and the rest.
+// (8.889 us), the OS02K10's 831 at 108.3 MHz (7.673 us; 805 in its 120 and
+// 144 fps window modes) - times the rows. The VI's own line measure agrees
+// (4221 and 3654 ticks of its 475 MHz, 2026-10-12). The ground splits its
+// "Enc" into this and the rest.
 uint32_t cv610_readout_us(void) {
     double row_us;
     if (sns == &sensors[0]) {
-        const char *e = getenv("CV2004_HMAX");
-        const long h = e ? strtol(e, NULL, 0) : 0;
-        row_us = 8.8889 * (h >= 560 && h <= 624 ? (double)h / 624.0 : 1.0);
+        row_us = 8.8889;
     } else {
         row_us = (fps == 144 || fps == 120 ? 805.0 : 831.0) / 108.3;   // its window modes' line
     }

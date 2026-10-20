@@ -137,12 +137,6 @@ static void *fc_thread(void *arg) {
     struct timespec res;
     const int coarse_timer = clock_getres(CLOCK_MONOTONIC, &res) != 0 || res.tv_sec || res.tv_nsec > 100000;
     for (;;) {
-        // Tests: /tmp/ka-frameclock-off - no reads at all.
-        if (access("/tmp/ka-frameclock-off", F_OK) == 0) {
-            publish(0, 0, 0, 0, 0, 0, gen, 0);
-            usleep(500000);
-            continue;
-        }
         int n = 0, rc = -1;
         double Tm = 0, E = 0, pur = 0;
         __atomic_store_n(&reframe_req, 0, __ATOMIC_RELEASE);   // what is found now is after it
@@ -233,7 +227,6 @@ static void *fc_thread(void *arg) {
                 last_ap = t;
             }
             if (t - last_up < UPDATE_US) continue;
-            if (access("/tmp/ka-frameclock-off", F_OK) == 0) break;
             // The loop: E to the last edge before these reads, then the error.
             const double N = ((double)t - (double)last_up) / Tm;
             last_up = t;

@@ -126,6 +126,9 @@ static void pq_bin_fit(uint8_t *buf, long size) {
     for (uint32_t i = 0; i < nsec && p + 16 <= size; i++) {
         uint32_t len;
         memcpy(&len, buf + p + 12, 4);
+        // The length is the file's: checked unsigned before it is added, as
+        // a long is 32 bits here and a bad length would wrap end backwards.
+        if (size - p < 20 || len > (uint32_t)(size - p - 20)) break;
         const long end = p + 16 + (long)len;
         if (end + 4 > size) break;
         uint32_t c = 0xffffffffu;
