@@ -14,6 +14,7 @@ int main(void) {
     test_slices();
     test_fcpoll();
     test_frame_edge();
+    test_aptrack();
     printf("%d checks, %d failed\n", checks, failures);
     return failures != 0;
 }

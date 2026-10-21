@@ -19,6 +19,7 @@
 #include "imu/imu.h"
 #include "app/state.h"
 #include "radio/frameclock.h"
+#include "video/aptrack.h"
 #include "radio/radio.h"
 #include "kestrel_air.h"
 
@@ -121,27 +122,32 @@ static uint32_t radio_offset(uint32_t now) {
 // the middle of the ms it answered; a slow answer (over 2 ms) is skipped. One
 // a second, averaged 1/8 per sample, started again on a jump of over 20 ms or
 // a reconnect: a new link is a new clock. 0 until the first sample.
+// It keeps reading while the frame clock is good too, though nothing uses
+// it then: left alone through minutes of good clock its offset drifts some
+// 10-20 us a second, and when the frame clock lets go the stamps would start
+// from that stale offset and take ~10 s of 1/8 steps to come back - a step
+// the ground sees in its latency and screen-sync figures.
 static int ap_valid;
 static int64_t ap_off_us;
-static void ap_track(void);
+static void ap_track(int clock_ok);
 
 // The radio clock at our time t, us: on the frame's edges when they are
 // known (radio/frameclock.c), else from the ms readings below. 0: known. The
 // ground reads its own radio's edges the same way, so the two agree to some
 // 10-20 us instead of drifting apart between ms re-syncs.
 static int ap_at(uint64_t t, uint64_t *ap) {
-    if (frameclock_ap_us(t, ap) == 0) return 0;
-    ap_track();
+    if (frameclock_ap_us(t, ap) == 0) { ap_track(1); return 0; }
+    ap_track(0);
     if (!ap_valid) return -1;
     *ap = t - (uint64_t)ap_off_us;
     return 0;
 }
 
-static void ap_track(void) {
+static void ap_track(int clock_ok) {
     static uint64_t last;
     static int reconnects = -1;
     uint64_t t0 = mono_us();
-    if (ap_valid && t0 - last < 1000000) return;
+    if (!ap_track_due(ap_valid, clock_ok, t0, last)) return;
     last = t0;
     if (reconnects != radio_reconnect_count()) { reconnects = radio_reconnect_count(); ap_valid = 0; }
     uint32_t ap;
