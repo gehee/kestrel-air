@@ -371,9 +371,9 @@ int radio_tgt_bitrate(void) {
     kbps = relay > 0 && relay < kbps ? relay * fps_coef / 10 : kbps * fps_coef / 10;
     if (strategy == 0) kbps = kbps * 82 / 100;
     if (r_max_kbps > 0 && kbps > r_max_kbps) kbps = r_max_kbps;   // ours: the goggle's cap
-    // Ours: 20 Mbps at most on its own; a cap the goggle sets may go to 25
-    // (a 40 MHz link at MCS 10 carries 44.9 Mbps).
-    const int ceiling = r_max_kbps > 20000 ? (r_max_kbps < 25000 ? r_max_kbps : 25000) : 20000;
+    // Ours: 20 Mbps at most on its own; a cap the goggle sets may go to 40
+    // (a 40 MHz link at MCS 10 carries 44.9 Mbps, at MCS 11 50.75).
+    const int ceiling = r_max_kbps > 20000 ? (r_max_kbps < 40000 ? r_max_kbps : 40000) : 20000;
     return kbps > ceiling ? ceiling : kbps;
 }
 
