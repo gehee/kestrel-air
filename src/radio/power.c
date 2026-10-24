@@ -30,9 +30,29 @@ static void set_local_power(int p) {
         printf("radio: no power level for %d\n", p);
         return;
     }
+    // The Ascent Lite has no high-power front end: 100 mW (19 dBm) is its
+    // top level, as stock offers it. A 500 mW request (the ground's stock
+    // 500mW Auto, or any value not in the map, taken as that) asked it for
+    // 26 dBm.
+    if (!model_lite_plus() && dbm > 19) {
+        printf("radio: %d dBm is above this unit's 19 dBm (100 mW): 19 dBm\n", dbm);
+        dbm = 19;
+    }
     uint8_t a[3] = { 2, (uint8_t)dbm, (uint8_t)dbm }, b[2] = { 8, (uint8_t)dbm };
-    while (r_set(0x0009, a, 3) != 0) usleep(10000);
-    while (r_set(0x0008, b, 2) != 0) usleep(10000);
+    // Retried until the radio takes them; a refusal is said once, with its
+    // code, instead of looping silently (a level the radio's calibration
+    // has no row for is refused for good).
+    int e, tries = 0;
+    while ((e = r_set(0x0009, a, 3)) != 0) {
+        if (tries++ == 0) printf("radio: TX power %d dBm: SET 9 refused (%d), retrying\n", dbm, e);
+        usleep(10000);
+    }
+    tries = 0;
+    while ((e = r_set(0x0008, b, 2)) != 0) {
+        if (tries++ == 0) printf("radio: TX power %d dBm: SET 8 refused (%d), retrying\n", dbm, e);
+        usleep(10000);
+    }
+    printf("radio: TX power %d dBm (%d mW asked)\n", dbm, p);
     // The Lite+'s front end goes to high power above 23 dBm (stock: 500 mW).
     if (model_lite_plus()) {
         r_set_fem(dbm > 23);
@@ -69,6 +89,7 @@ void *r_standby_thread(void *arg) {
             cur = low;
             low_power = 1;
         } else if (normal == 1) {     // out of it
+            printf("radio: normal power, %d mW (%s)\n", want, flying ? "flying" : "standby mode off");
             image_low_power(0);
             shared.low_power = 0;
             r_set_rf_path_b(1);
