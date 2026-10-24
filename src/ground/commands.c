@@ -295,6 +295,7 @@ void dispatch(const uint8_t *p, int len) {
     case 0x24: if (len >= 2 && p[1] >= 1 && p[1] <= 6) radio_bandwidth_request(p[1] - 1); break;
     case KA_CMD_MAX_KBPS: if (len >= 5) radio_set_max_kbps(v); break;
     case KA_CMD_MAX_BW:   if (len >= 2) radio_set_max_bw(p[1]); break;
+    case KA_CMD_LOGS:     if (len >= 2) flightlog_set_enabled(p[1] != 0); break;
     case 0x07: case 0x0f: case 0x11: case 0x13: case 0x14: case 0x15: case 0x17:
     case 0x18: case 0x19: case 0x1a: case 0x1d: case 0x1f:
         break;                          // logged only by stock

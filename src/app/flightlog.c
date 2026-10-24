@@ -38,6 +38,12 @@ static int recording, file_fd = -1;
 static uint64_t disarmed_at;
 static int64_t epoch_off;                 // goggle time - monotonic seconds, 0 = unknown
 static unsigned flight_seq;
+static volatile int enabled;              // the goggle's Debug Info, off by default
+
+void flightlog_set_enabled(int on) {
+    if (on != enabled) printf("flightlog: flight logs %s\n", on ? "on (the goggle's Debug Info)" : "off");
+    enabled = on;
+}
 
 void flightlog_set_time(uint32_t epoch) {
     if (epoch < 1600000000u) return;      // a goggle without a set clock
@@ -116,7 +122,7 @@ static void ring_add(const char *b, size_t n, uint64_t now) {
 
 // Armed or not, once a chunk of output came in or a second went by.
 static void step(uint64_t now) {
-    const int armed = fc_flying();
+    const int armed = enabled && fc_flying();
     if (!recording && armed) {
         recording = 1;
         disarmed_at = 0;

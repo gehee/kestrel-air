@@ -53,6 +53,7 @@
 // ---- ground -> air commands that are ours ------------------------------------
 #define KA_CMD_MAX_KBPS 0x40   // u32 LE: video bitrate cap in kbps, 0 = none
 #define KA_CMD_MAX_BW   0x41   // u8: video link bandwidth cap in MHz (20, or 40/0 = none)
+#define KA_CMD_LOGS     0x42   // u8: 1 = keep flight logs on the flash (the goggle's Debug Info), 0 = not
 
 // ---- the video packet ----------------------------------------------------------
 // 00 00 00 01 | header (42) | extras (12) | slice | ee 29 55 9f
