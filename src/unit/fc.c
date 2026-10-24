@@ -31,6 +31,7 @@
 #include <unistd.h>
 
 #include "radio/radio.h"
+#include "video/video.h"
 #include "common/crc.h"
 
 static int fd = -1;
@@ -38,7 +39,7 @@ static char dev[64];
 static volatile int flying;
 static pthread_mutex_t uart_mtx = PTHREAD_MUTEX_INITIALIZER;
 
-int fc_flying(void) { return flying; }
+int fc_flying(void) { return flying || video_tune_armed(); }   // armed=1 in /tmp/ka-tune: a bench stand-in
 
 // ---- FC -> ground queue (msp_ringbuffer, 4096 bytes) ----------------------
 

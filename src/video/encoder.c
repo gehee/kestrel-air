@@ -51,12 +51,15 @@ static int venc_fd = -1;
 //   thr=0|1     rc texture thresholds: 0 ours (stock's), 1 the SDK's defaults
 //   scene=0..3  ss_mpi_venc_set_scene_mode (1)
 //   irlog=0|1   once a second in /tmp/air.log: intra area per picture
+//   armed=1     the flight controller taken as armed (unit/fc.c): out of standby
+//               at the chosen TX power, as in flight - for bench tests
 // ir, ir_qp, gop and ir_mode recreate the channel (a keyframe): changing the
 // GOP of a running channel silently turns intra refresh off.
 static const char *const tune_names[T_N] = { "ir", "ir_qp", "gop", "row_qp", "i_prop",
                                              "min_qp", "max_qp", "cu", "ir_mode", "roi",
-                                             "fgp", "thr", "scene", "irlog" };
-int tune[T_N] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+                                             "fgp", "thr", "scene", "irlog", "armed" };
+int tune[T_N] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+int video_tune_armed(void) { return tune[T_ARMED] == 1; }
 static int tune_or(int t, int def) { return tune[t] >= 0 ? tune[t] : def; }
 
 // rc_param_apply: at creation and after every attribute change.

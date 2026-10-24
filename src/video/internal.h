@@ -18,7 +18,7 @@ extern uint16_t fc_bitmap;                   // flow-control bitmap
 
 // Live tuning (/tmp/ka-tune, see encoder.c).
 enum { T_IR, T_IR_QP, T_GOP, T_ROW_QP, T_I_PROP, T_MIN_QP, T_MAX_QP, T_CU, T_IR_MODE, T_ROI,
-       T_FGP, T_THR, T_SCENE, T_IRLOG, T_N };
+       T_FGP, T_THR, T_SCENE, T_IRLOG, T_ARMED, T_N };
 extern int tune[T_N];
 
 typedef struct {
