@@ -25,6 +25,7 @@ int  radio_throughput(void);
 int  radio_reconnect_count(void);
 int  radio_retx_too_many(void);
 int  radio_tgt_bitrate(void);             // kbps
+int  radio_tx_dbm(void);                  // the TX power last applied, dBm (-1 before)
 void radio_set_fps_coef(int coef);        // x10; 10 unless exposure-limited
 int  radio_ringbuf_left(void);            // bytes queued in the radio for port 3, -1 on error
 int  radio_wireless_time(uint32_t *ms);   // the radio's AP clock

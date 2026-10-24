@@ -1,5 +1,6 @@
 // The ground's commands: settings, the video's size and rate, keyframes,
 // pairing, the radio's channels, bandwidth and caps.
+#include "app/flightlog.h"
 #include "ground/internal.h"
 
 #include <fcntl.h>
@@ -101,6 +102,10 @@ static void init_cfg(const uint8_t *p, int len) {
     if (init_busy || len < 50) return;
     init_busy = 1;
     const uint8_t *s = p + 1;
+    // The goggle's clock (u32 LE at 1, gettimeofday): names the flight logs.
+    uint32_t epoch;
+    memcpy(&epoch, s + 1, 4);
+    flightlog_set_time(epoch);
     uint16_t w0, h0, w1, h1;
     memcpy(&w0, s + 0x11, 2); memcpy(&h0, s + 0x13, 2);
     memcpy(&w1, s + 0x17, 2); memcpy(&h1, s + 0x19, 2);

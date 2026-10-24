@@ -24,6 +24,9 @@ static int power_dbm(int p) {
     return -1;
 }
 
+static volatile int applied_dbm = -1;
+int radio_tx_dbm(void) { return applied_dbm; }
+
 static void set_local_power(int p) {
     int dbm = power_dbm(p);
     if (dbm < 0) {
@@ -53,6 +56,7 @@ static void set_local_power(int p) {
         usleep(10000);
     }
     printf("radio: TX power %d dBm (%d mW asked)\n", dbm, p);
+    applied_dbm = dbm;
     // The Lite+'s front end goes to high power above 23 dBm (stock: 500 mW).
     if (model_lite_plus()) {
         r_set_fem(dbm > 23);

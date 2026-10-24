@@ -13,6 +13,7 @@ void video_set_bitrate(int kbps);
 void video_scale_bitrate(int num, int den);
 void video_enable_idr(int enable);
 int video_tune_armed(void);  // /tmp/ka-tune armed=1: the FC taken as armed (bench)
+int  video_kbps(void);      // the encoder's bitrate now
 int  video_tgt_fps(void);
 int  video_send_start(void);
 int  video_send_stop(void);

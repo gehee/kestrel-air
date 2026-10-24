@@ -390,6 +390,7 @@ void video_enable_idr(int en) {
     }
 }
 int video_tgt_fps(void) { return fps; }
+int video_kbps(void) { return venc_kbps; }
 // Send start / stop: a request the read thread takes on its next
 // pass (stopping destroys the encoder); the caller waits up to 2 s for it.
 static int send_cmd(int enable) {

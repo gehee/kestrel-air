@@ -23,6 +23,7 @@
 #include "kestrel_air.h"
 #include "radio/radio.h"
 #include "video/video.h"
+#include "unit/fc.h"
 
 static void send_rec_status(void) {
     uint8_t m[6] = { 0x01, 2, 0, 0, 0, 0 };   // 2: no recording path (no SD recorder)
@@ -204,6 +205,25 @@ static void put16(uint8_t *p, int v) {
     memcpy(p, &x, 2);
 }
 
+// Once a second in the log (and the flight logs, app/flightlog.c), linked or
+// not: what the air side is doing, for the range of a flight - the power
+// applied and what the radio's power detectors read (TSSI, both paths), the
+// link as the radio has it, the encoder against its target.
+static void log_status(void) {
+    static uint64_t status_ms;
+    const uint64_t now_ms = mono_ms();
+    if (now_ms - status_ms < 1000) return;
+    status_ms = now_ms;
+    radio_period r;
+    radio_period_info(&r);
+    printf("status: armed=%d standby=%d tx=%ddBm tssi=%u/%u gain=%u/%u ofs=%d/%d mcs=%d thr=%dkbps"
+           " video=%d/%dkbps linked=%d batt=%umV getfail=%u sendfail=%u\n",
+           fc_flying(), shared.low_power ? 1 : 0, radio_tx_dbm(), r.tssi_a, r.tssi_b, r.gain_a, r.gain_b,
+           r.ofs_a, r.ofs_b, radio_mcs(), radio_throughput(), video_kbps(), radio_tgt_bitrate(),
+           radio_connected(), (unsigned)radio_batt_mv(), (unsigned)shared.venc_get_fail,
+           (unsigned)shared.vsend_fail);
+}
+
 static void send_period(void) {
     uint8_t m[39];
     radio_period r;
@@ -298,6 +318,7 @@ void *tick_thread(void *arg) {
             }
             if (last_rec != 2) { last_rec = 2; break; }   // record state: no recorder
             usleep(50000);
+            log_status();
             if (radio_connected()) {
                 // Version and info every 2 s by the clock. Stock sends the
                 // version at steps 42 and 82 of this loop, which the camera
