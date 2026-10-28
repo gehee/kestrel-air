@@ -1,6 +1,5 @@
 // The ground's commands: settings, the video's size and rate, keyframes,
 // pairing, the radio's channels, bandwidth and caps.
-#include "app/flightlog.h"
 #include "ground/internal.h"
 
 #include <fcntl.h>
@@ -103,10 +102,6 @@ static void init_cfg(const uint8_t *p, int len) {
     if (init_busy || len < 50) return;
     init_busy = 1;
     const uint8_t *s = p + 1;
-    // The goggle's clock (u32 LE at 1, gettimeofday): names the flight logs.
-    uint32_t epoch;
-    memcpy(&epoch, s + 1, 4);
-    flightlog_set_time(epoch);
     uint16_t w0, h0, w1, h1;
     memcpy(&w0, s + 0x11, 2); memcpy(&h0, s + 0x13, 2);
     memcpy(&w1, s + 0x17, 2); memcpy(&h1, s + 0x19, 2);
@@ -297,7 +292,9 @@ void dispatch(const uint8_t *p, int len) {
     case 0x24: if (len >= 2 && p[1] >= 1 && p[1] <= 6) radio_bandwidth_request(p[1] - 1); break;
     case KA_CMD_MAX_KBPS: if (len >= 5) radio_set_max_kbps(v); break;
     case KA_CMD_MAX_BW:   if (len >= 2) radio_set_max_bw(p[1]); break;
-    case KA_CMD_LOGS:     if (len >= 2) flightlog_set_enabled(p[1] != 0); break;
+    // No flight logs on the air unit's flash any more, whatever the goggle's
+    // Debug Info says (/tmp/air.log, in RAM, has the same output).
+    case KA_CMD_LOGS:     break;
     case 0x07: case 0x0f: case 0x11: case 0x13: case 0x14: case 0x15: case 0x17:
     case 0x18: case 0x19: case 0x1a: case 0x1d: case 0x1f:
         break;                          // logged only by stock

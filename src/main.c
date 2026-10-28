@@ -3,7 +3,6 @@
 // It runs the unit as the stock air app does - camera, encoder, the AR8030
 // radio and the ground's messages (src/*/) - with the radio reached through
 // ar_libre's client library, with no radio daemon.
-#include "app/flightlog.h"
 #include "video/video.h"
 #include "camera/image.h"
 #include "imu/imu.h"
@@ -91,7 +90,6 @@ int main(int argc, char *argv[]) {
   // mid-write.
   signal(SIGPIPE, SIG_IGN);
   setvbuf(stdout, NULL, _IOLBF, 0);
-  flightlog_start();   // each armed flight's output kept on the flash too
 
   return app_run(&keepRunning);
 }

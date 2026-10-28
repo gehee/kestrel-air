@@ -187,7 +187,7 @@ static void put16(uint8_t *p, int v) {
     memcpy(p, &x, 2);
 }
 
-// Once a second in the log (and the flight logs, app/flightlog.c), linked or
+// Once a second in the log (/tmp/air.log), linked or
 // not: what the air side is doing, for the range of a flight - the power
 // applied and what the radio's power detectors read (TSSI, both paths), the
 // link as the radio has it, the encoder against its target.
