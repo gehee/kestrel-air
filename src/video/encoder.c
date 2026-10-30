@@ -38,14 +38,14 @@ static int venc_fd = -1;
 // encoder - for trying encoder settings while watching the picture, with no
 // reboot (the camera pipeline cannot restart without one). It lives in RAM, so
 // a reboot drops it. A name not in the file keeps its default:
-//   ir=N        intra refresh rows per picture, 0 off (default KA_IR, 0)
+//   ir=N        intra refresh columns (or rows) per picture, 0 off (KA_IR; 4 columns, 2 rows)
 //   ir_qp=N     intra refresh's request_i_qp (KA_IR_QP, 32)
 //   gop=N       pictures between keyframes (KA_GOP; 1000 with intra refresh, else 25)
 //   row_qp=N    rc row_qp_delta, how far a CTU row's QP may move (6)
 //   i_prop=N    CBR max_i_proportion (3)
 //   min_qp=N / max_qp=N   CBR QP range, P and I alike (encoder defaults)
 //   cu=0|1      1: stock's CU costs, small blocks dearer; 0: the encoder's own
-//   ir_mode=0|1 intra refresh by rows (0) or columns (1)
+//   ir_mode=0|1 intra refresh by rows (0) or columns (1, the default)
 //   roi=0|1|2   the poor-link side regions: 0 never, 1 stock's (QP 51), 2 QP +6
 //   fgp=0|1     the encoder's foreground protection
 //   thr=0|1     rc texture thresholds: 0 ours (stock's), 1 the SDK's defaults
@@ -103,8 +103,11 @@ static void rc_param_apply(void) {
 // (a CMD53 timeout, then every write failed): the bus watchdog in
 // radio/client.c turns that into a restart of the unit.
 // A ground that (re)joins mid-stream is given a keyframe when it asks (IDR below).
-static int ir_rows(void) { return tune_or(T_IR, env_int("KA_IR", 2)); }
-static int ir_mode(void) { return tune_or(T_IR_MODE, env_int("KA_IR_MODE", 0)) == 1; }
+// Columns by default: a band of rows lands in one slice and made it up to 87%
+// of its picture (bench, 2 slices, 19 Mbps); columns cross every slice, the
+// most 60%. 4 columns at 1536 wide sweep in 12 pictures (2 rows: 14).
+static int ir_mode(void) { return tune_or(T_IR_MODE, env_int("KA_IR_MODE", 1)) == 1; }
+static int ir_rows(void) { return tune_or(T_IR, env_int("KA_IR", ir_mode() ? 4 : 2)); }
 static int ir_sweep(void) {   // pictures for one refresh sweep, 0 without intra refresh
     int ir = ir_rows();
     if (ir <= 0) return 0;
@@ -120,7 +123,7 @@ static int gop_len(void) {
 }
 
 static void ir_apply(void) {
-    int ir = ir_rows();   // intra refresh: CTU rows per frame
+    int ir = ir_rows();   // intra refresh: CTU columns (or rows) per frame
     ot_venc_intra_refresh r = { ir > 0 ? TD_TRUE : TD_FALSE,
                                 ir_mode() ? OT_VENC_INTRA_REFRESH_COLUMN : OT_VENC_INTRA_REFRESH_ROW,
                                 (td_u32)(ir > 0 ? ir : 1), (td_u32)tune_or(T_IR_QP, env_int("KA_IR_QP", 32)) };
@@ -368,7 +371,7 @@ void set_venc_bitrate(int f, int kbps, int reason) {
     if (kbps == sb_last_kbps && f == sb_last_fps) return;
     sb_last_kbps = kbps;
     sb_last_fps = f;
-    int k = kbps < 128 ? 128 : kbps > 40000 ? 40000 : kbps;   // radio_tgt_bitrate keeps it to 20 unless the goggle allows more
+    int k = kbps < 128 ? 128 : kbps > 40000 ? 40000 : kbps;   // the encoder's own range; radio_tgt_bitrate keeps to the link and the goggle's cap
     if (video_verbose) printf("video: encoder chn %d, %d fps, %d kbps (reason %d)\n", CHN, f, k, reason);
     param_set(f, k);
     roi_update(1);
@@ -376,7 +379,11 @@ void set_venc_bitrate(int f, int kbps, int reason) {
 
 void venc_down(int reason) { set_venc_bitrate(0, (int)((unsigned)venc_kbps * 8 / 10), reason); }
 
-void video_set_bitrate(int kbps) { param_set(video_tgt_fps(), kbps); }   // MCS drop: no limiter
+// MCS drop: no limiter. Ours: and set_venc_bitrate forgets what it last
+// applied - this bypasses it, so a ramp step equal to its old value was taken
+// as a repeat and skipped every time: the encoder sat at 70% of the target
+// (14000 of 20000 kbps after Max Bitrate 25 -> 20 then Max MCS 11 -> 8).
+void video_set_bitrate(int kbps) { param_set(video_tgt_fps(), kbps); sb_last_kbps = sb_last_fps = -1; }
 void video_scale_bitrate(int num, int den) {
     if (fc_bitmap & 4) set_venc_bitrate(0, venc_kbps * num / den, 2);
 }
@@ -406,13 +413,28 @@ static int nal_kind(int t) {
 // Ours (irlog=1): the intra area of each picture, in 32x32 units, from the
 // encoder's own block counts - a refresh band of 2 CTU rows is ~120-180 at
 // 1080p, a picture without one far less. Once a second: min/max per picture,
-// how many pictures carried a band, and the QP.
-static void irlog_add(const ot_venc_h265_stream_info *h, int frame_end) {
+// how many pictures carried a band, and the QP. Also each slice's bytes (mean
+// and largest by its place in the picture) and the largest slice's share of
+// its picture, to see how evenly a picture is cut.
+static void irlog_add(const ot_venc_h265_stream_info *h, int frame_end, uint32_t len) {
     static uint32_t pic, n, band, mn = ~0u, mx, last_end_units, qp_sum;
+    static uint32_t si, pic_bytes, pic_big, share_sum, share_max;
+    static uint64_t sl_sum[4];
+    static uint32_t sl_n[4], sl_max[4];
     static uint64_t t0;
+    if (si < 4) { sl_sum[si] += len; sl_n[si]++; if (len > sl_max[si]) sl_max[si] = len; }
+    si++;
+    pic_bytes += len;
+    if (len > pic_big) pic_big = len;
     // The counts look like the whole picture's, repeated per slice: taken from
     // the picture's last slice only.
     if (!frame_end) return;
+    if (pic_bytes) {
+        uint32_t share = pic_big * 100 / pic_bytes;
+        share_sum += share;
+        if (share > share_max) share_max = share;
+    }
+    si = pic_bytes = pic_big = 0;
     last_end_units = h->intra32x32_cu_num + h->intra16x16_cu_num / 4 +
                      h->intra8x8_cu_num / 16 + h->intra4x4_cu_num / 64;
     pic = last_end_units;
@@ -429,6 +451,15 @@ static void irlog_add(const ot_venc_h265_stream_info *h, int frame_end) {
         printf("video: irlog: %u pictures, intra 32x32 units per picture min %u max %u (last slice %u), "
                "%u with a refresh band, mean qp %u\n", n, mn, mx, last_end_units, band,
                n ? qp_sum / n : 0);
+    if (tune_or(T_IRLOG, 0) == 1) {
+        printf("video: slices: largest %u%% of its picture (mean, most %u%%), bytes mean/max",
+               n ? share_sum / n : 0, share_max);
+        for (int i = 0; i < 4 && sl_n[i]; i++)
+            printf(" s%d %u/%u", i, (unsigned)(sl_sum[i] / sl_n[i]), sl_max[i]);
+        printf("\n");
+    }
+    for (int i = 0; i < 4; i++) sl_sum[i] = sl_n[i] = sl_max[i] = 0;
+    share_sum = share_max = 0;
     n = band = mx = qp_sum = 0;
     mn = ~0u;
     t0 = t;
@@ -491,7 +522,7 @@ int stream_get(uint8_t *dst, uint32_t room, vframe *out, int timeout_ms) {
         }
         out->len = total;
     }
-    irlog_add(&s.h265_info, out->frame_end);
+    irlog_add(&s.h265_info, out->frame_end, total);
     ss_mpi_venc_release_stream(CHN, &s);
     return 1;
 }

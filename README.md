@@ -120,8 +120,8 @@ timing, from bytes the stock app always sends as zero:
 
 | Environment | | Default |
 |---|---|---|
-| `KA_IR` | intra refresh, CTU rows (or columns) per picture; 0 = the stock stream with periodic keyframes | `2` |
-| `KA_IR_MODE` | 0 rows, 1 columns | `0` |
+| `KA_IR` | intra refresh, CTU columns (or rows) per picture; 0 = the stock stream with periodic keyframes | `4` (columns), `2` (rows) |
+| `KA_IR_MODE` | 0 rows, 1 columns | `1` |
 | `KA_IR_QP` | intra refresh's `request_i_qp` | `32` |
 | `KA_GOP` | GOP length. With intra refresh it must be one sweep: the CV610 refreshes once per GOP and then stops until the next GOP start (a P picture there, not a keyframe) | one sweep with intra refresh (17 at 1080p with 2 rows), `25` without |
 | `KA_LD_LINES` | VPSS hands the encoder lines in steps of this many | `64`, `128` with intra refresh (32 is 0.3 ms faster but sometimes halves the frame rate) |
@@ -142,7 +142,7 @@ boot) and kestrel-air applies the file within half a second, logging `video: tun
 6), `i_prop` (`max_i_proportion`, 3), `min_qp`, `max_qp`, `cu` (1 stock's CU costs, 0
 the encoder's own), `roi` (poor-link side regions: 0 never, 1 stock's QP 51, 2 QP +6),
 `fgp` (foreground protection 0/1), `thr` (rc texture thresholds: 0 ours, 1 the SDK's),
-`scene` (0..3, 1), `irlog` (1: intra area per picture once a second). A name left out
+`scene` (0..3, 1), `irlog` (1: intra area per picture and the slices' bytes once a second). A name left out
 goes back to its default. `ir`, `ir_qp`, `gop` and `ir_mode` recreate the encoder
 channel (a keyframe): a GOP changed on a running channel turns intra refresh off.
 The VPSS step stays what the unit booted with (128 lines with intra refresh, 64

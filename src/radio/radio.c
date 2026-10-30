@@ -376,11 +376,16 @@ int radio_tgt_bitrate(void) {
     if (!kbps) kbps = 128;
     kbps = relay > 0 && relay < kbps ? relay * fps_coef / 10 : kbps * fps_coef / 10;
     if (strategy == 0) kbps = kbps * 82 / 100;
+#ifdef KA_VIDEO_SHARE
+    // Test builds: the video at KA_VIDEO_SHARE % of the link at every MCS,
+    // instead of the table (how far the encoder, radio and goggle go).
+    if (thr) kbps = (relay > 0 && relay < thr ? relay : thr) * KA_VIDEO_SHARE / 100 * fps_coef / 10;
+#endif
     if (r_max_kbps > 0 && kbps > r_max_kbps) kbps = r_max_kbps;   // ours: the goggle's cap
-    // Ours: 20 Mbps at most on its own; a cap the goggle sets may go to 40
-    // (a 40 MHz link at MCS 10 carries 44.9 Mbps, at MCS 11 50.75).
-    const int ceiling = r_max_kbps > 20000 ? (r_max_kbps < 40000 ? r_max_kbps : 40000) : 20000;
-    return kbps > ceiling ? ceiling : kbps;
+    // Ours: 40 Mbps at most (a 40 MHz link at MCS 10 carries 44.9 Mbps, at
+    // MCS 11 50.75); under it only the share of the link and the goggle's cap.
+    // It was 20 without a goggle cap above that, from the 20 MHz days.
+    return kbps > 40000 ? 40000 : kbps;
 }
 
 int radio_ringbuf_left(void) {
