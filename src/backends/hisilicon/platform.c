@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -14,7 +15,9 @@ void platform_sensor_boot(void) {
         volatile uint32_t *r = mmap(NULL, 0x10000, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0x11010000);
         if (r != MAP_FAILED) {
             uint32_t v = r[0x8440 / 4];
-            if (((v >> 12) & 0xf) != 4) r[0x8440 / 4] = (v & ~0xf000u) | 0x4000;
+            // 0 is the boot default. 4 is 24 MHz (CV2004, OS02K10). Leave a
+            // 27 MHz select (10, the PS5280) for the pipeline to confirm.
+            if (((v >> 12) & 0xf) == 0) r[0x8440 / 4] = (v & ~0xf000u) | 0x4000;
             munmap((void *)r, 0x10000);
         }
         close(fd);
@@ -40,6 +43,11 @@ void platform_format(int *w, int *h, int *fps) {
     }
     int known = (*w == 1920 && *h == 1080) || (*w == 1280 && *h == 720) || (*w == 2560 && *h == 1440);
     if ((known && *fps > 99) || *fps > 100) *fps = 100;
+    /* PS5280 linear 1080p is 50 or 60. Its 100 fps mode is 1200x900, and the
+     * GT tuning bins are cam_ps5280_50fps / _60fps. A stored 120 becomes 60. */
+    if (*w == 1920 && *h == 1080 && *fps > 60 &&
+        camera_sensor_name() && strcmp(camera_sensor_name(), "ps5280") == 0)
+        *fps = 60;
 }
 
 int platform_fixed_format(void) { return 0; }

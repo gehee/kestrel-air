@@ -16,6 +16,8 @@
 // Not done: the Lite+ also sends audio, which kestrel-air does not.
 // The radio chip firmware and config (bb_demo_sky_cx472.img and
 // bb_config_sky_cx472*.json on the Lite+) are picked by air/start.sh.
+// The GT (board 4861, project 5, G_Sky) uses the Lite's 3v3 radio image
+// and has no Lite+ FEM. Its camera is a PS5280, not the CV2004 or OS02K10.
 #include "unit/model.h"
 
 #include "app/settings.h"
@@ -29,6 +31,7 @@
 static const struct { int board_type, prj, cam_imu; const char *name; } models[] = {
     { 482, 4, 1, "Ascent Lite" },
     { 472, 7, 0, "Ascent Lite+" },
+    { 4861, 5, 0, "Ascent GT" },
 };
 static int cur;
 
@@ -59,7 +62,7 @@ int model_init(const char *board_type_file) {
             printf("model: %s (board type %d, from %s)\n", models[i].name, bt, from);
             return 0;
         }
-    printf("model: board type %d (from %s) is not a Lite or Lite+\n", bt, from);
+    printf("model: board type %d (from %s) is not a Lite, Lite+ or GT\n", bt, from);
     return -1;
 }
 
@@ -69,6 +72,7 @@ int model_radio_defaults(void) { return 0; }
 int model_board_type(void) { return 0; }
 int model_prj(void) { return 0; }
 int model_lite_plus(void) { return 0; }
+int model_gt(void) { return 0; }
 int model_cam_imu(void) { return 0; }
 const char *model_name(void) { return "BETAFPV P1 Air"; }
 #else
@@ -76,6 +80,7 @@ int model_radio_defaults(void) { return 1; }
 int model_board_type(void) { return models[cur].board_type; }
 int model_prj(void) { return models[cur].prj; }
 int model_lite_plus(void) { return models[cur].board_type == 472; }
+int model_gt(void) { return models[cur].board_type == 4861; }
 int model_cam_imu(void) { return models[cur].cam_imu; }
 const char *model_name(void) { return models[cur].name; }
 

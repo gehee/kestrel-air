@@ -82,7 +82,7 @@ int app_run(volatile sig_atomic_t *keep_running) {
     printf("app: kestrel-air %s\n", KA_VERSION);
     settings_log();
     if (model_init(BOARD_TYPE_FILE)) {
-        // air/start.sh only starts kestrel-air on a Lite or Lite+. Exit 0: no reboot.
+        // air/start.sh only starts kestrel-air on a Lite, Lite+ or GT. Exit 0: no reboot.
         fprintf(stderr, "app: not an air unit kestrel-air runs on\n");
         return 0;
     }
@@ -105,18 +105,23 @@ int app_run(volatile sig_atomic_t *keep_running) {
     // tuning bin and the image settings. The encoder waits for the ground.
     camera_set_sensor_angle(angle);
     camera_set_low_delay_lines(video_low_delay_lines());
-    if (camera_pipeline_create(0, w, h, (char)sf, 0)) {
-        fprintf(stderr, "app: camera pipeline failed\n");
-        return 1;
+    int cam_ok = camera_pipeline_create(0, w, h, (char)sf, 0) == 0;
+    if (!cam_ok) {
+        // Keep the radio up. Exit 1 used to reboot-loop the GT when the
+        // PS5280 had no matching driver yet.
+        fprintf(stderr, "app: camera pipeline failed, radio only\n");
+    } else {
+        sensor_devinfo();
+        video_set_format(w, h, f, sf);
+        if (image_start(sf, angle)) {
+            fprintf(stderr, "app: camera pipeline failed, radio only\n");
+            camera_pipeline_destroy();
+            camera_system_deinit();
+            cam_ok = 0;
+        } else {
+            image_apply_all();
+        }
     }
-    sensor_devinfo();
-    video_set_format(w, h, f, sf);
-    if (image_start(sf, angle)) {
-        camera_pipeline_destroy();
-        camera_system_deinit();
-        return 1;
-    }
-    image_apply_all();
 
     platform_record_init();
 
@@ -141,7 +146,7 @@ int app_run(volatile sig_atomic_t *keep_running) {
         fprintf(stderr, "app: radio setup failed\n");
         radio_init_failed = 1;
     } else {
-        video_start();
+        if (cam_ok) video_start();
         ground_start();
     }
     if (platform_fc_device()) fc_start(platform_fc_device());
@@ -152,10 +157,12 @@ int app_run(volatile sig_atomic_t *keep_running) {
 
     ready(0);
     printf("app: stop streaming\n");
-    video_stop();
+    if (cam_ok) video_stop();
     imu_stop();
-    image_pause();
-    camera_pipeline_destroy();
-    camera_system_deinit();
+    if (cam_ok) {
+        image_pause();
+        camera_pipeline_destroy();
+        camera_system_deinit();
+    }
     return 0;
 }

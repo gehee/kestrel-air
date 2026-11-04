@@ -13,7 +13,7 @@ static const struct { const char *name, *def, *what; } known[] = {
     { "KA_WB_RED", "required on AR9311", "initial ISP red gain (Q8)" },
     { "KA_WB_BLUE", "required on AR9311", "initial ISP blue gain (Q8)" },
     { "KA_WB_ORDER", "required on AR9311", "ISP statistics Bayer order" },
-    { "KA_BOARD_TYPE", BOARD_TYPE_FILE, "stock's board type: 482 Lite, 472 Lite+; set by air/start.sh (unit/model.c)" },
+    { "KA_BOARD_TYPE", BOARD_TYPE_FILE, "stock's board type: 482 Lite, 472 Lite+, 4861 GT; set by air/start.sh (unit/model.c)" },
     { "KA_IR",         "2",            "intra refresh, CTU rows (or columns) per picture; 0: periodic keyframes (video/encoder.c)" },
     { "KA_IR_MODE",    "0",            "intra refresh by rows (0) or columns (1)" },
     { "KA_IR_QP",      "32",           "intra refresh's request_i_qp" },

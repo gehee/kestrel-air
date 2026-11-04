@@ -11,7 +11,7 @@ void camera_set_sensor_angle(int angle);      // before camera_pipeline_create
 void camera_set_low_delay_lines(int lines);   // VPSS -> encoder, before camera_pipeline_create
 
 // The image sensor found at the last camera_pipeline_create (the CV2004 before the first one).
-const char *camera_sensor_name(void);         // "cv2004", "os02k10": also the tuning bins' names
+const char *camera_sensor_name(void);         // "cv2004", "os02k10", "ps5280"
 int  camera_sensor_type(void);                // the type the stock app reports to the ground
 int  camera_sensor_angle_tuning(void);        // the tuning bins' names carry the orientation
 // Ours: the sensor's output now (1920x1080, or 1536x864 at 120 fps), and

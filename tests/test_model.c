@@ -29,8 +29,10 @@ void test_model(void) {
     setenv("KA_BOARD_TYPE", "472", 1);
     CHECK(model_init("/nonexistent") == 0 && model_prj() == 7);
 
-    setenv("KA_BOARD_TYPE", "4861", 1);         // a GT: not ours
-    CHECK(model_init("/nonexistent") == -1);
+    setenv("KA_BOARD_TYPE", "4861", 1);         // the GT
+    CHECK(model_init("/nonexistent") == 0);
+    CHECK(model_board_type() == 4861 && model_prj() == 5 && model_gt() && !model_lite_plus());
+    CHECK(!model_cam_imu());
     unsetenv("KA_BOARD_TYPE");
     CHECK(model_init(write_file("492\n")) == -1);   // the RC: not ours either
     remove("/tmp/ka-test-board-type");
