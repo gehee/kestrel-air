@@ -17,3 +17,4 @@ void test_slices(void);
 void test_fcpoll(void);
 void test_frame_edge(void);
 void test_aptrack(void);
+void test_power(void);

@@ -328,6 +328,8 @@ void roi_update(int on) { (void)on; }
 int video_low_delay_lines(void) { return 0; }
 int lat_info(void) { return 0; } // Capture timing not calibrated to the radio clock yet
 int video_tune_armed(void) { return 0; }
+int video_tune_pwr(void) { return -1; }   // no tune file here: the chosen TX power
+int video_tune_pathb(void) { return 1; }  // and both TX paths, as in flight
 int video_tgt_fps(void) { return fps; }
 int video_kbps(void) { return venc_kbps; }
 uint8_t video_features(void) { return radio_bw40_enabled()?KA_FEAT_MAXBW:0; }

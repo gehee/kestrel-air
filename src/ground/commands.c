@@ -20,6 +20,7 @@
 #include "common/clock.h"
 #include "common/crc.h"
 #include "kestrel_air.h"
+#include "radio/power_levels.h"
 #include "radio/radio.h"
 #include "video/video.h"
 
@@ -40,9 +41,7 @@ static int res_ok(int w, int h, int fps) {
 }
 
 static int power_ok(int mw) {
-    static const int tab[] = { 25, 100, 150, 200, 500, 101, 501 };
-    for (unsigned i = 0; i < sizeof(tab) / sizeof(tab[0]); i++)
-        if (tab[i] == mw) return mw;
+    if (power_level_of(mw)) return mw;
     printf("ground: ground power setting not in the map, max_pwr=%d\n", 501);
     return 501;
 }
@@ -253,8 +252,8 @@ void dispatch(const uint8_t *p, int len) {
         if (len >= 3) {
             uint16_t mw;
             memcpy(&mw, p + 1, 2);
-            cfg_set("bb_power_mw", mw);
-            cfg_save();
+            mw = power_ok(mw);   // a level not in the map (an older ground's TEST ones): 500 mW AUTO
+            cfg_set("bb_power_mw", mw); cfg_save();
             printf("ground: standby mode %d, TX power %d mW\n", cfg_get("sys_standby_mode", 1), mw);
         }
         break;

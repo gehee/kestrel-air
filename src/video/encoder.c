@@ -53,13 +53,18 @@ static int venc_fd = -1;
 //   irlog=0|1   once a second in /tmp/air.log: intra area per picture
 //   armed=1     the flight controller taken as armed (unit/fc.c): out of standby
 //               at the chosen TX power, as in flight - for bench tests
+//   pwr=N       armed: the TX power N dBm (13..26, never above the 500 mW
+//               level) instead of the chosen one - a power sweep on the bench
+//   pathb=0|1   armed: the second TX path off (0) or on (1, as in flight)
 // ir, ir_qp, gop and ir_mode recreate the channel (a keyframe): changing the
 // GOP of a running channel silently turns intra refresh off.
 static const char *const tune_names[T_N] = { "ir", "ir_qp", "gop", "row_qp", "i_prop",
                                              "min_qp", "max_qp", "cu", "ir_mode", "roi",
-                                             "fgp", "thr", "scene", "irlog", "armed" };
-int tune[T_N] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+                                             "fgp", "thr", "scene", "irlog", "armed", "pwr", "pathb" };
+int tune[T_N] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
 int video_tune_armed(void) { return tune[T_ARMED] == 1; }
+int video_tune_pwr(void) { return tune[T_PWR] >= 13 && tune[T_PWR] <= 26 ? tune[T_PWR] : -1; }
+int video_tune_pathb(void) { return tune[T_PATHB] == 0 ? 0 : 1; }
 static int tune_or(int t, int def) { return tune[t] >= 0 ? tune[t] : def; }
 
 // rc_param_apply: at creation and after every attribute change.
@@ -223,7 +228,8 @@ uint8_t video_features(void) {
     return (uint8_t)((lat_info() ? KA_FEAT_LATINFO | KA_FEAT_APCLOCK : 0) |
                      (ir_rows() > 0 ? KA_FEAT_INTRA_REFRESH : 0) |
                      (imu_dev ? KA_FEAT_CAM_IMU : 0) | (fc_imu ? KA_FEAT_FC_IMU : 0) |
-                     (radio_bw40_enabled() ? KA_FEAT_MAXBW : 0) | (camera_has_864p120() ? KA_FEAT_864P120 : 0));
+                     (radio_bw40_enabled() ? KA_FEAT_MAXBW : 0) | (camera_has_864p120() ? KA_FEAT_864P120 : 0) |
+                     KA_FEAT_PWRLVL);
 }
 
 int venc_create(int kbps) {

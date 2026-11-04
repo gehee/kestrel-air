@@ -24,6 +24,9 @@
                                      // second, its responses relayed to the ground as all others
 #define KA_FEAT_864P120       0x40   // 864p120: asked for 1536x864 at 120 (SET_CHN_RES), the camera
                                      // runs a 1536x864 window of its sensor at 120 fps
+#define KA_FEAT_PWRLVL        0x80   // TX power (ground command 0x22) takes 150, 200 and 316 mW and
+                                     // their AUTO (N + 1: 151, 201, 317) besides stock's 25, 100,
+                                     // 500 and AUTO 101, 501: AUTO's top can be set under 500 mW
 
 // Version message: payload byte offsets of what is ours.
 #define KA_VER_TAG0   1   // 'K'

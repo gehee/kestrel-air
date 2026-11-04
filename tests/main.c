@@ -15,6 +15,7 @@ int main(void) {
     test_fcpoll();
     test_frame_edge();
     test_aptrack();
+    test_power();
     printf("%d checks, %d failed\n", checks, failures);
     return failures != 0;
 }
