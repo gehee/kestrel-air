@@ -361,6 +361,9 @@ void image_low_power(int on) { (void)on; }       // print-only in stock
 int image_max_exposure_live(void) { return 0; }
 int image_set_max_exposure(unsigned us) { (void)us; return -1; }
 
+// The camera settings it applies: all of them (its info says no cam=).
+const char *image_settings(void) { return NULL; }
+
 // All the image settings at once
 void image_apply_all(void) {
     pthread_mutex_lock(&mtx);

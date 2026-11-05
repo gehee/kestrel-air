@@ -29,3 +29,7 @@ void image_low_power(int on);
 // where the backend can (image_max_exposure_live; its info then says maxexp=1).
 int  image_max_exposure_live(void);
 int  image_set_max_exposure(unsigned us);   // 0: none; -1 where not live
+// Ours: the camera settings this backend applies, by the goggle's names
+// (rotate, scene, ev, wb, sat, contrast, sharpness, 3dnr, focus), comma
+// separated, for its info (cam=); NULL: all of them.
+const char *image_settings(void);

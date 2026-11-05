@@ -217,7 +217,7 @@ void dispatch(const uint8_t *p, int len) {
         shared.cam_flag=1;
         return;
     }
-    if(id==0x01 || id==0x03 || id==0x04 || id==0x06 || id==0x0e || id==0x1b || id==0x1c || id==0x27) {
+    if(id==0x01 || id==0x03 || id==0x04 || id==0x0e || id==0x1b || id==0x1c || id==0x27) {
         fprintf(stderr,"camera: unsupported native command 0x%02x\n",id);return;
     }
 #endif

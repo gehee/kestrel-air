@@ -63,6 +63,8 @@ int platform_cpu_temp_x100(void) {
     return (int)(float)(((raw - 127) * 165 / 784 - 40) * 100);
 }
 
+int platform_supply_mv(void) { return -1; }   // the battery is the radio chip's ADC (radio/adc.c)
+
 int platform_hw_ver_mv(void) {
     int fd = open("/dev/ot_lsadc", O_RDWR), sum = 0;
     uint32_t model = 1, ch = 1;

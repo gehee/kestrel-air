@@ -44,7 +44,25 @@ int camera_pipeline_create(char sensor, short w, short h, char rate, int slices)
 }
 void camera_pipeline_destroy(void) { }
 void camera_system_deinit(void) { }
-void camera_set_sensor_angle(int angle) { if (angle) fprintf(stderr, "camera: rotation unsupported on P1\n"); }
+// Rotate 180 (the goggle's Camera > Rotate, angle 1): the sensor's mirror and
+// flip, fpvOS sc231ai's V4L2 controls, which it applies at each stream start
+// too. Its Bayer phase stays in all four (bench 2026-11-04).
+void camera_set_sensor_angle(int angle) {
+    char path[128];
+    if (ar9311_node("sc231ai", path, sizeof(path))) return;
+    int fd = open(path, O_RDWR | O_CLOEXEC);
+    if (fd < 0) { perror(path); return; }
+    struct v4l2_ext_control c[2] = {
+        { .id = V4L2_CID_HFLIP, .value = angle != 0 }, { .id = V4L2_CID_VFLIP, .value = angle != 0 },
+    };
+    struct v4l2_ext_controls cs = { .which = V4L2_CTRL_WHICH_CUR_VAL, .count = 2, .controls = c };
+    if (ioctl(fd, VIDIOC_S_EXT_CTRLS, &cs)) {
+        if (angle) perror("camera: rotation (sensor flip controls)");
+    } else {
+        printf("camera: sensor at %d degrees\n", angle ? 180 : 0);
+    }
+    close(fd);
+}
 void camera_set_low_delay_lines(int lines) { (void)lines; }
 const char *camera_sensor_name(void) { return "sc231ai"; }
 int camera_sensor_type(void) { return 0; } // No verified stock protocol sensor ID

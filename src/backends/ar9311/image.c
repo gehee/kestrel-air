@@ -1,6 +1,7 @@
 // Source AE/AWB services shipped by fpvOS. They are owned by this capture
 // session, started after warm-up, and stopped before capture is torn down.
 #include "camera/image.h"
+#include "app/config.h"
 #include "backends/ar9311/camera.h"
 #include <errno.h>
 #include <signal.h>
@@ -25,15 +26,22 @@ static void pause_locked(void);
 // The AE's exposure cap, which it reads at start and again on a SIGHUP: the
 // goggle's VIDEO > Max Exposure applies live, from the AE's operating point.
 #define CAP_FILE "/run/kestrel-air/max-exposure-us"
-static void write_cap(void) {
-    FILE *f = fopen(CAP_FILE, "w");
-    if (!f) { fprintf(stderr, "camera: %s: %m\n", CAP_FILE); return; }
-    fprintf(f, "%u\n", image_max_exposure_us);
-    if (fclose(f)) fprintf(stderr, "camera: %s: %m\n", CAP_FILE);
+
+static void write_num(const char *path, long v) {
+    FILE *f = fopen(path, "w");
+    if (!f) { fprintf(stderr, "camera: %s: %m\n", path); return; }
+    fprintf(f, "%ld\n", v);
+    if (fclose(f)) fprintf(stderr, "camera: %s: %m\n", path);
 }
+static void write_cap(void) { write_num(CAP_FILE, image_max_exposure_us); }
 int image_max_exposure_live(void) { return 1; }
 // The EV goes over the AE's control socket (ar9311_camera_set); the cap
 // through its file, read again on a SIGHUP.
+// The camera settings it applies, by the goggle's names, for its info
+// (cam_ctrl): Rotate, the sensor's mirror and flip (camera_set_sensor_angle);
+// EV, the AE's target, and white balance Auto or Lock, each over its
+// service's control socket (ar9311_camera_set).
+const char *image_settings(void) { return "rotate,ev,wb_lock"; }
 int image_set_max_exposure(unsigned us) {
     if (us > 1000000) return -1;
     pthread_mutex_lock(&controls_lock);
@@ -161,7 +169,7 @@ int image_start(int fps, int angle) {
         return -1;
     }
     if (image_max_exposure_us) printf("camera: exposure capped at %u us, the gain making up the rest\n", image_max_exposure_us);
-    puts("camera: source AE/AWB; remote EV and auto/locked white balance");
+    puts("camera: source AE/AWB; Rotate, EV and auto/locked white balance from the goggle");
     return 0;
 }
 static int start_locked(void) {

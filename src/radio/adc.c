@@ -42,6 +42,8 @@ static void update_batt(void) {
 
 
 int radio_batt_mv(void) {
+    int mv = platform_supply_mv();   // the SoC's own ADC, where the board has it there (P1)
+    if (mv >= 0) return mv;
     if (r_adc_state != 2) return 0;
     return ((adc_offset + 900) * adc_filt / 900) * 16 + 200;
 }

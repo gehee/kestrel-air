@@ -160,11 +160,7 @@ static void send_info(void) {
         m[0] = KA_MSG_INFO;
         len = 1 + snprintf(m + 1, sizeof(m) - 1,
                            "app=kestrel-air\nver=%s\nos=%s\nradio=%s\nkernel=%s\nstock=%s\n"
-                           "board=%d\nmodel=%s\nsensor=%s\nhw=0x%02x\nradiofw=%s\n"
-#ifdef KA_PLATFORM_AR9311
-                           "cam_ctrl=ev,wb_lock\n"
-#endif
-                           ,
+                           "board=%d\nmodel=%s\nsensor=%s\nhw=0x%02x\nradiofw=%s\n",
                            KA_VERSION, os, radio, u.release, stock,
                            model_board_type(), model_name(), camera_sensor_name(), hw_ver,
                            strstr(fw, "open8030") ? "open8030" : "stock");
@@ -179,10 +175,15 @@ static void send_info(void) {
     image_get_info(&isp);
     // 864p144, the 400 mW level and the live exposure cap (KA_CMD_MAX_EXP)
     // have no feature bit (the header's byte is full): said here.
-    const int n = len + snprintf(out + len, sizeof(out) - (size_t)len, "readout=%u\nexposure=%u\n%s%spwr400=1\n",
+    // cam_ctrl=: the camera settings it applies, where not all of them (the
+    // P1); a receiver offers only those (wb: kelvin presets, wb_lock: Lock
+    // current).
+    const char *cam = image_settings();
+    const int n = len + snprintf(out + len, sizeof(out) - (size_t)len, "readout=%u\nexposure=%u\n%s%s%s%s%spwr400=1\n",
                                  camera_readout_us(), (unsigned)isp.exp_time_us,
                                  camera_has_864p144() ? "864p144=1\n" : "",
-                                 image_max_exposure_live() ? "maxexp=1\n" : "");
+                                 image_max_exposure_live() ? "maxexp=1\n" : "",
+                                 cam ? "cam_ctrl=" : "", cam ? cam : "", cam ? "\n" : "");
     ground_send((const uint8_t *)out, n < (int)sizeof(out) ? n : (int)sizeof(out) - 1);
 }
 
