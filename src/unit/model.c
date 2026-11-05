@@ -69,6 +69,9 @@ int model_radio_defaults(void) { return 0; }
 int model_board_type(void) { return 0; }
 int model_prj(void) { return 0; }
 int model_lite_plus(void) { return 0; }
+// Stock P1's radio config: pwr_range [5, 23], starting at 23 (200 mW); its
+// calibration rows stop changing above 26.
+int model_max_dbm(void) { return 23; }
 int model_cam_imu(void) { return 0; }
 const char *model_name(void) { return "BETAFPV P1 Air"; }
 #else
@@ -76,6 +79,8 @@ int model_radio_defaults(void) { return 1; }
 int model_board_type(void) { return models[cur].board_type; }
 int model_prj(void) { return models[cur].prj; }
 int model_lite_plus(void) { return models[cur].board_type == 472; }
+// The Lite has no high-power front end: 100 mW is its top, as stock offers.
+int model_max_dbm(void) { return model_lite_plus() ? 26 : 19; }
 int model_cam_imu(void) { return models[cur].cam_imu; }
 const char *model_name(void) { return models[cur].name; }
 

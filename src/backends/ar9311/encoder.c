@@ -536,10 +536,12 @@ int video_tgt_fps(void) { return fps; }
 int video_kbps(void) { return venc_kbps; }
 // Before the first channel, what the setting asks for: a refused control
 // takes the bit back with the next header.
+// The power levels too (150, 200 and 316 mW, and their AUTO): the ground
+// offers them, and the P1 holds anything above its 23 dBm there (radio/power.c).
 uint8_t video_features(void) {
     return (uint8_t)((lat_info() ? KA_FEAT_LATINFO | KA_FEAT_APCLOCK : 0) |
                      (radio_bw40_enabled()?KA_FEAT_MAXBW:0) |
-                     (ir_wanted() && ir_kernel ? KA_FEAT_INTRA_REFRESH : 0));
+                     (ir_wanted() && ir_kernel ? KA_FEAT_INTRA_REFRESH : 0) | KA_FEAT_PWRLVL);
 }
 void set_venc_bitrate(int f,int kbps,int reason) {
     (void)f; (void)reason;

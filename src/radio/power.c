@@ -37,13 +37,14 @@ static void set_local_power(int p) {
         printf("radio: no power level for %d\n", p);
         return;
     }
-    // The Ascent Lite has no high-power front end: 100 mW (19 dBm) is its
-    // top level, as stock offers it. A 500 mW request (the ground's stock
-    // 500mW Auto, or any value not in the map, taken as that) asked it for
-    // 26 dBm.
-    if (!model_lite_plus() && dbm > 19) {
-        printf("radio: %d dBm is above this unit's 19 dBm (100 mW): 19 dBm\n", dbm);
-        dbm = 19;
+    // Each unit's top level (model_max_dbm): the Ascent Lite has no
+    // high-power front end, 100 mW (19 dBm) as stock offers it; the P1 Air
+    // stops at 23 as stock's radio config does. A 500 mW request (the
+    // ground's stock 500mW Auto, or any value not in the map, taken as that)
+    // asked them for 26 dBm.
+    if (dbm > model_max_dbm()) {
+        printf("radio: %d dBm is above this unit's %d dBm: %d dBm\n", dbm, model_max_dbm(), model_max_dbm());
+        dbm = model_max_dbm();
     }
     // AUTO (stock's N+1: 101, 501, and ours 151, 201, 317): the radio takes
     // the ground's power requests between 25 mW and the level (an Open8030
