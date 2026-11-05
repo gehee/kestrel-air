@@ -206,7 +206,12 @@ int ar9311_controls_alive(void) {
     pthread_mutex_lock(&controls_lock);int r=alive_locked();pthread_mutex_unlock(&controls_lock);return r;
 }
 void image_restart(int fps, int angle) { (void)fps; (void)angle; }
-void image_get_info(image_isp_info *i) { memset(i, 0, sizeof(*i)); }
+// The exposure the AE service set on the sensor, in us; the rest is not read.
+void image_get_info(image_isp_info *i) {
+    memset(i, 0, sizeof(*i));
+    uint32_t line, rows, exp;
+    if (!ar9311_sensor_timing(&line, &rows, &exp)) i->exp_time_us = (uint32_t)(((uint64_t)line * exp + 500000) / 1000000);
+}
 void image_apply_all(void) {
     pthread_mutex_lock(&controls_lock);
     if(ae && awb && apply_saved()) fprintf(stderr,"camera: saved controls could not be applied\n");

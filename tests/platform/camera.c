@@ -3,6 +3,7 @@
 #include <assert.h>
 #include "../../src/backends/ar9311/image.c"
 int ar9311_node(const char *name,char *path,size_t size){(void)name;(void)path;(void)size;return -1;}
+int ar9311_sensor_timing(uint32_t *line,uint32_t *rows,uint32_t *exposure){(void)line;(void)rows;(void)exposure;return -1;}
 static pid_t fake(int *fd,const char *expected,const char *response) {
     int pair[2];assert(!socketpair(AF_UNIX,SOCK_SEQPACKET,0,pair));
     pid_t p=fork();assert(p>=0);

@@ -2,6 +2,7 @@
 #include "platform/platform.h"
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -56,4 +57,12 @@ void platform_led_set(int red, int on) {
 }
 
 int platform_radio_board_controls(void) { return 0; }
-int platform_frameclock(void) { return 0; } // capture timing not calibrated to the radio clock yet
+// The radio clock off the radio's frame (radio/frameclock.c), KA_FRAMECLOCK=1.
+// Off by default: on the P1's SDIO radio it found no frame (2026-11-04: "no
+// frame found", 300 reads a try, again and again), so the stamps stay the
+// radio clock's own.
+int platform_frameclock(void) {
+    static int v = -1;
+    if (v < 0) { const char *e = getenv("KA_FRAMECLOCK"); v = e && *e && atoi(e) == 1; }
+    return v;
+}

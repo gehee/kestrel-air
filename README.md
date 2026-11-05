@@ -120,7 +120,7 @@ timing, from bytes the stock app always sends as zero:
 
 | Environment | | Default |
 |---|---|---|
-| `KA_IR` | intra refresh, CTU columns (or rows) per picture; 0 = the stock stream with periodic keyframes | `4` (columns), `2` (rows) |
+| `KA_IR` | intra refresh, CTU columns (or rows) per picture; 0 = the stock stream with periodic keyframes. On the P1 Air any value above 0 turns it on: the WAVE5 moves its band one CTU row a picture, and `KA_IR_MODE`, `KA_IR_QP` and `KA_GOP` do nothing there | `4` (columns), `2` (rows) |
 | `KA_IR_MODE` | 0 rows, 1 columns | `1` |
 | `KA_IR_QP` | intra refresh's `request_i_qp` | `32` |
 | `KA_GOP` | GOP length. With intra refresh it must be one sweep: the CV610 refreshes once per GOP and then stops until the next GOP start (a P picture there, not a keyframe) | one sweep with intra refresh (17 at 1080p with 2 rows), `25` without |
