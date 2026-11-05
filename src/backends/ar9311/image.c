@@ -3,13 +3,13 @@
 #include "camera/image.h"
 #include "app/config.h"
 #include "backends/ar9311/camera.h"
+#include "backends/ar9311/wb.h"
 #include <errno.h>
 #include <signal.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <poll.h>
 #include <sys/socket.h>
-#include "app/config.h"
 #include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,13 +35,16 @@ static void write_num(const char *path, long v) {
 }
 static void write_cap(void) { write_num(CAP_FILE, image_max_exposure_us); }
 int image_max_exposure_live(void) { return 1; }
-// The EV goes over the AE's control socket (ar9311_camera_set); the cap
-// through its file, read again on a SIGHUP.
 // The camera settings it applies, by the goggle's names, for its info
 // (cam_ctrl): Rotate, the sensor's mirror and flip (camera_set_sensor_angle);
-// EV, the AE's target, and white balance Auto or Lock, each over its
-// service's control socket (ar9311_camera_set).
-const char *image_settings(void) { return "rotate,ev,wb_lock"; }
+// EV, the AE's target, over its control socket; White Balance over the AWB
+// service's: Auto, Lock current (wb_lock) or a kelvin preset (wb), locked at
+// the tuning file's reference white points for it (wb.c); Saturation and
+// Contrast, the ISP's (fpvOS ar-isp 0009); 3D DNR and Sharpness, its de3d and
+// lnr strengths (0010).
+const char *image_settings(void) { return "rotate,ev,wb,wb_lock,sat,contrast,sharpness,3dnr"; }
+// The EV goes over the AE's control socket (ar9311_camera_set); the cap
+// through its file, read again on a SIGHUP.
 int image_set_max_exposure(unsigned us) {
     if (us > 1000000) return -1;
     pthread_mutex_lock(&controls_lock);
@@ -121,25 +124,44 @@ failed:
     fprintf(stderr,"camera: control failed or timed out; restarting the capture session\n");
     return -1;
 }
+// White Balance as the AWB service's gains: a kelvin preset's from the
+// tuning file's reference white points (wb.c, the vendor's lookup), locked
+// there as Lock current's are; Lock current's as saved. -1 where there are
+// none (no white points for it, or no valid saved lock).
+static int wb_gains(int wb, int *red, int *blue) {
+    *red=*blue=0;
+    if(wb>0) {
+        unsigned r,b;
+        const char *tuning=getenv("KA_CAMERA_TUNING");
+        if(!tuning || ar9311_wb_gains_file(tuning,wb,&r,&b)) {
+            fprintf(stderr,"camera: no white points in the tuning file for %d K\n",wb);
+            return -1;
+        }
+        *red=(int)r;*blue=(int)b;
+    } else if(wb==-1) {
+        *red=cfg_get("wb_lock_red",0);*blue=cfg_get("wb_lock_blue",0);
+    } else return 0;
+    if(*red<128 || *red>1024 || *blue<128 || *blue>1024) {*red=*blue=0;return -1;}
+    return 0;
+}
 static int apply_saved(void) {
     int ev=cfg_get("ev_x10",0), wb=(int16_t)cfg_get("cct",0);
     if(ev < -10 || ev > 10) ev=0;
-    if(wb != -1) wb=0;
+    if(wb != -1 && (wb < 1000 || wb > 20000)) wb=0;
     int red=0,blue=0;
-    if(wb==-1) {
-        red=cfg_get("wb_lock_red",0);blue=cfg_get("wb_lock_blue",0);
-        if(red<128 || red>1024 || blue<128 || blue>1024) {wb=0;red=blue=0;}
-    }
-    if(request(&ae_fd,ev,0,0,NULL,NULL) || request(&awb_fd,wb,red,blue,NULL,NULL))return -1;
+    if(wb_gains(wb,&red,&blue)) wb=0;   // an older lock without gains: Auto
+    if(request(&ae_fd,ev,0,0,NULL,NULL) || request(&awb_fd,wb?-1:0,red,blue,NULL,NULL))return -1;
     cfg_set("ev_x10",ev);cfg_set("cct",wb);
     return 0;
 }
 int ar9311_camera_set(unsigned id, int value) {
     if ((id==2 && (value < -10 || value > 10)) ||
-        (id==5 && value!=0 && value!=-1) || (id!=2 && id!=5)) return -1;
+        (id==5 && value!=0 && value!=-1 && (value < 1000 || value > 20000)) || (id!=2 && id!=5)) return -1;
     pthread_mutex_lock(&controls_lock);
-    int red=0,blue=0;
-    int result=request(id==2?&ae_fd:&awb_fd,value,0,0,&red,&blue);
+    int red=0,blue=0,set_red=0,set_blue=0,want=value,result=0;
+    // A kelvin preset: locked at the tuning's gains for it (SET -1 red blue).
+    if(id==5 && value>0) {result=wb_gains(value,&set_red,&set_blue);want=-1;}
+    if(!result) result=request(id==2?&ae_fd:&awb_fd,want,set_red,set_blue,&red,&blue);
     if(!result) {
         cfg_set(id==2?"ev_x10":"cct",value);
         if(id==5 && value==-1) {cfg_set("wb_lock_red",red);cfg_set("wb_lock_blue",blue);}
@@ -169,7 +191,7 @@ int image_start(int fps, int angle) {
         return -1;
     }
     if (image_max_exposure_us) printf("camera: exposure capped at %u us, the gain making up the rest\n", image_max_exposure_us);
-    puts("camera: source AE/AWB; Rotate, EV and auto/locked white balance from the goggle");
+    puts("camera: source AE/AWB; Rotate, EV, White Balance, Saturation, Contrast, Sharpness and 3D DNR from the goggle");
     return 0;
 }
 static int start_locked(void) {
@@ -206,6 +228,7 @@ static int alive_locked(void) {
     pid_t r;
     do { r = waitpid(ae, NULL, WNOHANG); } while (r < 0 && errno == EINTR);
     if (r != 0) { ae = 0; return -1; }
+    if (awb <= 0) return 0;
     do { r = waitpid(awb, NULL, WNOHANG); } while (r < 0 && errno == EINTR);
     if (r != 0) { awb = 0; return -1; }
     return 0;
@@ -220,18 +243,63 @@ void image_get_info(image_isp_info *i) {
     uint32_t line, rows, exp;
     if (!ar9311_sensor_timing(&line, &rows, &exp)) i->exp_time_us = (uint32_t)(((uint64_t)line * exp + 500000) / 1000000);
 }
+// Before the setters below: the saved EV and White Balance over the services'
+// sockets, then the ISP's own settings.
+void image_set_sat(int v);
+void image_set_contrast(int v);
+void image_set_sharpness(int v);
+void image_set_3dnr(int v);
 void image_apply_all(void) {
     pthread_mutex_lock(&controls_lock);
     if(ae && awb && apply_saved()) fprintf(stderr,"camera: saved controls could not be applied\n");
     pthread_mutex_unlock(&controls_lock);
+    image_set_sat(cfg_get("sat", 0));
+    image_set_contrast(cfg_get("contrast", 0));
+    image_set_sharpness(cfg_get("sharpness", 0));
+    image_set_3dnr(cfg_get("cam_3dnr_strength", 5));
+}
+// The goggle's Saturation and Contrast, 0 (Auto) or 1..10 with 5 the
+// tuning's, as the Lite maps them (camera/image.c sat_map, contrast_map):
+// percent of the tuning's for fpvOS ar-isp's debugfs saturation (chroma rows
+// of its colour-space matrix) and contrast (its gamma curve about mid-scale).
+// The ISP keeps them across stream restarts.
+static const int sat_pct[11] = { 100, 20, 60, 80, 90, 100, 110, 120, 140, 160, 180 };
+static const int contrast_pct[11] = { 100, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150 };
+static void isp_set(const char *name, const int *pct, int v) {
+    char path[64];
+    snprintf(path, sizeof(path), "/sys/kernel/debug/ar-isp/%s", name);
+    v = v >= 0 && v <= 10 ? v : 0;
+    printf("camera: %s %d (%d%% of the tuning's)\n", name, v, pct[v]);
+    write_num(path, pct[v]);
+}
+void image_set_sat(int v) { isp_set("saturation", sat_pct, v); }
+void image_set_contrast(int v) { isp_set("contrast", contrast_pct, v); }
+// The goggle's 3D DNR (Off 0, Low 2, Mid 3, High 4, Auto 5): the ISP's de3d
+// strength pair, 0..100 with 50 the tuning's (ar-isp module parameters, the
+// vendor's strength law). They take effect at its next ladder re-latch, forced
+// here only while capture runs (the AE is up): unconfigured, the ISP must not
+// be written, and a stream start applies them anyway.
+void image_set_3dnr(int v) {
+    int s = v == 0 ? 0 : v == 2 ? 30 : v == 4 ? 70 : 50;
+    printf("camera: 3D noise reduction %d (de3d strength %d, 50 the tuning's)\n", v, s);
+    write_num("/sys/module/ar_isp/parameters/de3d_strength", s);
+    write_num("/sys/module/ar_isp/parameters/de3d_strength9", s);
+    if (ae > 0) write_num("/sys/kernel/debug/ar-isp/ladders", 1);
+}
+// The goggle's Sharpness, 0 (Auto) or 1..10 with 5 the tuning's: the ISP's lnr
+// strength (fpvOS ar-isp 0010, the vendor's Sharpness law, 50 the tuning's;
+// above it the fields climb toward 511 whatever the gain, so the top stays
+// mild), at its next re-latch as the 3D DNR.
+static const int sharp_strength[11] = { 50, 10, 20, 30, 40, 50, 52, 54, 56, 58, 60 };
+void image_set_sharpness(int v) {
+    v = v >= 0 && v <= 10 ? v : 0;
+    printf("camera: sharpness %d (lnr strength %d, 50 the tuning's)\n", v, sharp_strength[v]);
+    write_num("/sys/module/ar_isp/parameters/lnr_strength", sharp_strength[v]);
+    if (ae > 0) write_num("/sys/kernel/debug/ar-isp/ladders", 1);
 }
 void image_set_ev(int v) { (void)ar9311_camera_set(2,v); }
 void image_set_awb(int v) { (void)ar9311_camera_set(5,v); }
 #define UNSUPPORTED(name) void image_set_##name(int v) { (void)v; fprintf(stderr,"camera: " #name " control unsupported\n"); }
 UNSUPPORTED(scene)
-UNSUPPORTED(sat)
-UNSUPPORTED(sharpness)
-UNSUPPORTED(contrast)
-UNSUPPORTED(3dnr)
 UNSUPPORTED(2dnr)
 void image_low_power(int on) { (void)on; } // RF standby does not alter the validated sensor mode

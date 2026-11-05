@@ -4,6 +4,24 @@
 #include "../../src/backends/ar9311/image.c"
 int ar9311_node(const char *name,char *path,size_t size){(void)name;(void)path;(void)size;return -1;}
 int ar9311_sensor_timing(uint32_t *line,uint32_t *rows,uint32_t *exposure){(void)line;(void)rows;(void)exposure;return -1;}
+// A tuning file with the P1's AWB reference points (tests/platform/wb.c).
+static void write_tuning(const char *path) {
+    static const struct { uint32_t k; float rg, bg; } pts[8] = {
+        { 7442, 0.4546f, 0.6184f }, { 6575, 0.4899f, 0.5468f }, { 5045, 0.5357f, 0.4948f },
+        { 5045, 0.5357f, 0.4948f }, { 4050, 0.5591f, 0.3357f }, { 3960, 0.6680f, 0.3275f },
+        { 2892, 0.9208f, 0.2742f }, { 2336, 1.1356f, 0.2017f },
+    };
+    uint8_t b[AR9311_WB_BLOCK_SIZE] = { 0 };
+    uint32_t n = 8;
+    memcpy(b + 0x0c, &n, 4);
+    for (int i = 0; i < 8; i++) {
+        memcpy(b + 0x30 + 8 * i, &pts[i].rg, 4);
+        memcpy(b + 0x34 + 8 * i, &pts[i].bg, 4);
+        memcpy(b + 0xd0 + 4 * i, &pts[i].k, 4);
+    }
+    FILE *f = fopen(path, "wb");
+    assert(f && !fseek(f, AR9311_WB_BLOCK, SEEK_SET) && fwrite(b, sizeof(b), 1, f) == 1 && !fclose(f));
+}
 static pid_t fake(int *fd,const char *expected,const char *response) {
     int pair[2];assert(!socketpair(AF_UNIX,SOCK_SEQPACKET,0,pair));
     pid_t p=fork();assert(p>=0);
@@ -23,7 +41,7 @@ int main(void) {
     assert(!setenv("KA_CONFIG",path,1));
 
     assert(ar9311_camera_set(2,11)<0);
-    assert(ar9311_camera_set(5,5200)<0);
+    assert(ar9311_camera_set(5,5200)<0);   // a kelvin preset, but no tuning file to take its gains from
     pid_t p=fake(&ae_fd,"SET -7","OK -7 0 0");
     assert(!ar9311_camera_set(2,-7) && cfg_get("ev_x10",0)==-7);reap(p);close(ae_fd);
     p=fake(&awb_fd,"SET -1","OK -1 400 700");
@@ -41,7 +59,20 @@ int main(void) {
     p=fake(&ae_fd,"SET -7","OK -7 0 0");
     pid_t w=fake(&awb_fd,"SET -1 400 700","OK -1 400 700");
     assert(!apply_saved());reap(p);reap(w);close(ae_fd);close(awb_fd);
+    // A kelvin preset: locked at the tuning's gains for it, saved as kelvin,
+    // and so again at the next start.
+    char tuning[160];
+    snprintf(tuning,sizeof(tuning),"%s/tuning.bin",directory);
+    write_tuning(tuning);
+    assert(!setenv("KA_CAMERA_TUNING",tuning,1));
+    p=fake(&awb_fd,"SET -1 476 525","OK -1 476 525");
+    assert(!ar9311_camera_set(5,5000) && cfg_get("cct",0)==5000);reap(p);close(awb_fd);
+    assert(ar9311_camera_set(5,999)<0 && cfg_get("cct",0)==5000);
+    p=fake(&ae_fd,"SET -7","OK -7 0 0");
+    w=fake(&awb_fd,"SET -1 476 525","OK -1 476 525");
+    assert(!apply_saved() && cfg_get("cct",0)==5000);reap(p);reap(w);close(ae_fd);close(awb_fd);
+    unlink(tuning);
     unlink(path);rmdir(directory);
 
-    puts("Native camera transactions preserve settings on failure and save applied lock gains");
+    puts("Native camera transactions preserve settings on failure, save applied lock gains and lock kelvin presets at the tuning's");
 }

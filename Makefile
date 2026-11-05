@@ -141,10 +141,15 @@ test-ar9311:
 		src/backends/ar9311/platform.c -Wl,--wrap=ioctl -o .build/tests/ar9311-input
 	./.build/tests/ar9311-input
 
+	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Isrc tests/platform/wb.c \
+		src/backends/ar9311/wb.c -o .build/tests/ar9311-wb
+	./.build/tests/ar9311-wb
+
 # Native camera control tests have no SDK, radio or physical-device dependency.
 .PHONY: test-camera
 test-camera:
 	@mkdir -p .local/tests
 	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -DKA_PLATFORM_AR9311 -Isrc -Iprotocol tests/platform/camera.c \
-		src/app/config.c src/app/settings.c src/common/json.c src/common/file.c -pthread -o .local/tests/camera
+		src/app/config.c src/app/settings.c src/common/json.c src/common/file.c \
+		src/backends/ar9311/wb.c -pthread -o .local/tests/camera
 	./.local/tests/camera
