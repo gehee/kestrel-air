@@ -9,3 +9,5 @@ stubs/out/
 .sdk-check/
 
 .build/
+
+.local/
