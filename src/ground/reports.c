@@ -160,7 +160,11 @@ static void send_info(void) {
         m[0] = KA_MSG_INFO;
         len = 1 + snprintf(m + 1, sizeof(m) - 1,
                            "app=kestrel-air\nver=%s\nos=%s\nradio=%s\nkernel=%s\nstock=%s\n"
-                           "board=%d\nmodel=%s\nsensor=%s\nhw=0x%02x\nradiofw=%s\n",
+                           "board=%d\nmodel=%s\nsensor=%s\nhw=0x%02x\nradiofw=%s\n"
+#ifdef KA_PLATFORM_AR9311
+                           "cam_ctrl=ev,wb_lock\n"
+#endif
+                           ,
                            KA_VERSION, os, radio, u.release, stock,
                            model_board_type(), model_name(), camera_sensor_name(), hw_ver,
                            strstr(fw, "open8030") ? "open8030" : "stock");
