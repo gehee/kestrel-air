@@ -27,6 +27,7 @@ typedef struct {
     uint32_t len;
     int frame_end;
     int strip;          // a strip of the picture, its own stream (KA_SLICE_STRIP)
+    int strip_ov;       // ...coded this many rows past each of its joins (KA_H_STRIP_OV)
 } vframe;
 
 int  lat_info(void);

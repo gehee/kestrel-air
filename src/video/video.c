@@ -311,6 +311,7 @@ static void *read_thread(void *arg) {
         h[KA_H_CAP_MS] = (uint8_t)(now - (uint32_t)(f.pts / 1000));
         h[KA_H_EXT_LEN] = EXT;
         h[KA_H_SLICE] = (uint8_t)(slice_idx & KA_SLICE_INDEX) | (f.strip ? KA_SLICE_STRIP : 0);
+        if (f.strip) h[KA_H_STRIP_OV] = (uint8_t)f.strip_ov;
         if (!f.frame_end) {
             h[KA_H_SLICE] |= KA_SLICE_MORE;
             if (++slice_idx > KA_SLICE_INDEX) printf("video: slice index %d\n", slice_idx);

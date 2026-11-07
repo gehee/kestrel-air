@@ -81,6 +81,9 @@
 #define KA_H_APFRAC   2    // ours: the radio clock's sub-ms part, 1/256 ms (KA_FEAT_APCLOCK)
 #define KA_H_TYPE     3    // picture type (keyframe)
 #define KA_H_LEN      4    // u32 LE: the slice's length (with any SEI after it)
+#define KA_H_STRIP_OV 8    // ours, a strip's (KA_SLICE_STRIP): the rows it codes past each of
+                           // its joins - its first ones (but the top strip's) and its last
+                           // ones (but the bottom strip's) are the next strip's, not shown
 #define KA_H_FPS      9    // encoded frame rate
 #define KA_H_PROTO    10   // ours: KA_PROTOCOL
 #define KA_H_FEAT     11   // ours: KA_FEAT_* bits

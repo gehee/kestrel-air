@@ -56,6 +56,12 @@ struct strip {
 };
 static struct strip strip[STRIPS_MAX] = {{.fd = -1}, {.fd = -1}, {.fd = -1}, {.fd = -1}};
 static int nstrips = 1;                  // encoders now: 1 (whole pictures), or 2-4 strips
+// Each strip codes strip_ov rows past each of its joins (KA_STRIP_OVERLAP: 16
+// by default, 0-32 in eights), which the ground cuts off again (header byte
+// KA_H_STRIP_OV): no join is at the edge a strip was coded to, where nothing
+// is predicted from beyond and nothing deblocked across - the faint line two
+// strips made there. Stock hides its seam the same way (2 x 16 rows).
+static unsigned strip_ov;
 static volatile int strips_wanted;       // asked for (KA_CMD_STRIPS), from the next channel
 static unsigned held[BUFFERS];           // bit k: strip k's encoder has the camera buffer
 static unsigned out_strip;               // the strip taken from its encoder next
@@ -256,14 +262,26 @@ static void control(int fd, unsigned int id, int value)
 // sees an exact picture after one sweep (17-19 pictures on the bench), not
 // after 67. A kernel without fpvOS's Wave5 intra refresh patch refuses the
 // control; the stream then keeps periodic keyframes and says so.
-static int ir_on, ir_kernel = 1;
+//
+// Strips refresh by CTU columns (fpvOS's Wave5 patch 0017): by rows each
+// strip's band is 2 CTU rows whatever its height, 4 strips coding half of
+// every picture intra; by columns the band is 2 columns of each strip, 2 of
+// the whole picture together (6.7% at 1920 wide, against 11.8% for whole
+// pictures by rows) whatever the number of strips. A sweep is the picture's
+// 30 columns (0.5 s); a lost picture is cleaned up after one, as by rows. A
+// kernel without the patch: strips by rows, as before.
+#define V4L2_CID_WAVE5_INTRA_REFRESH_COLUMNS (V4L2_CID_CODEC_BASE | 0x1f00)
+static int ir_on, ir_kernel = 1, ir_columns = 1;
 static int ir_wanted(void) { return env_int("KA_IR", 2) > 0; }
 
 
-// A strip's share of the bitrate: its share of the rows.
+// A strip's share of the bitrate: its share of the rows coded (the overlaps
+// counted in each strip that codes them).
 static int strip_kbps(int kbps, int k) {
 	if (nstrips < 2) return kbps;
-	int v = (int)((int64_t)kbps * strip[k].h / (unsigned)height);
+	unsigned coded = 0;
+	for (int i = 0; i < nstrips; i++) coded += strip[i].h;
+	int v = (int)((int64_t)kbps * strip[k].h / (coded ? coded : 1));
 	return v < 64 ? 64 : v;
 }
 
@@ -306,8 +324,19 @@ static void encoder_create(int k, const char *path, const struct v4l2_format *cf
 	control(s->fd, V4L2_CID_MPEG_VIDEO_HEVC_LEVEL, V4L2_MPEG_VIDEO_HEVC_LEVEL_4_1);
 	control(s->fd, V4L2_CID_MPEG_VIDEO_BITRATE, kbps * 1000);
 	if (!k) ir_on = ir_wanted() && ir_kernel;
-	// The band sweeps the encoder's own CTU rows: a strip's in fewer pictures.
-	if (ir_on && set_control(s->fd, V4L2_CID_MPEG_VIDEO_INTRA_REFRESH_PERIOD, (int)(s->h + 63) / 64)) {
+	// The band sweeps the encoder's own CTU rows (a strip's in fewer
+	// pictures), or a strip's CTU columns.
+	int ir_period = (int)(s->h + 63) / 64;
+	if (ir_on && nstrips > 1 && ir_columns) {
+		if (set_control(s->fd, V4L2_CID_WAVE5_INTRA_REFRESH_COLUMNS, 1) == 0) {
+			ir_period = (int)(f->width + 63) / 64;
+		} else {
+			if (k) fail("intra refresh by columns on a strip");
+			perror("intra refresh by columns (a kernel without fpvOS's Wave5 patch 0017), strips by rows");
+			ir_columns = 0;
+		}
+	}
+	if (ir_on && set_control(s->fd, V4L2_CID_MPEG_VIDEO_INTRA_REFRESH_PERIOD, ir_period)) {
 		if (k) fail("intra refresh on a strip");
 		perror("intra refresh (a kernel without fpvOS's Wave5 patch), periodic keyframes");
 		ir_kernel = ir_on = 0;
@@ -373,17 +402,22 @@ int venc_create(int kbps) {
 	for (unsigned int j = 0; j < PLANES; j++) c_stride[j] = f->plane_fmt[j].bytesperline;
 	// The strips: the picture's CTU rows (64) shared out, the top ones a row
 	// more where they do not divide - 5, 4, 4 and 4 rows at 1080p (the last
-	// 248 lines), 6, 6 and 5, or 9 and 8.
+	// 248 lines), 6, 6 and 5, or 9 and 8 - each joined to the next on a CTU
+	// row and coded strip_ov rows past each of its joins: 0-336, 304-592,
+	// 560-848 and 816-1080 at 4.
 	{
 		const unsigned rows = (f->height + 63) / 64;
 		nstrips = strips_wanted > 1 ? strips_wanted : 1;
 		if (nstrips > STRIPS_MAX) nstrips = STRIPS_MAX;
 		if ((unsigned)nstrips > rows) nstrips = (int)rows;
+		const int ov = env_int("KA_STRIP_OVERLAP", 16);
+		strip_ov = nstrips > 1 && ov > 0 && ov <= 32 && ov % 8 == 0 ? (unsigned)ov : 0;
 		unsigned y = 0;
 		for (int k = 0; k < nstrips; k++) {
 			const unsigned r = rows / (unsigned)nstrips + ((unsigned)k < rows % (unsigned)nstrips);
-			strip[k].y = y;
-			strip[k].h = k == nstrips - 1 ? f->height - y : r * 64;
+			const unsigned end = k == nstrips - 1 ? f->height : y + r * 64;
+			strip[k].y = k ? y - strip_ov : 0;
+			strip[k].h = (k == nstrips - 1 ? end : end + strip_ov) - strip[k].y;
 			y += r * 64;
 		}
 	}
@@ -443,8 +477,9 @@ int venc_create(int kbps) {
     else {
         char rows[64]; int at=0;
         for (int k=0;k<nstrips;k++) at+=snprintf(rows+at,sizeof(rows)-(size_t)at,"%s%u",k?"/":"",strip[k].h);
-        printf("video: AR9311 DMA-BUF encoders %dx%d@60 %dkbps in %d strips of %s rows, %s, capture stamps %u us late\n",
-               width,height,kbps,nstrips,rows,ir_on?"intra refresh by CTU rows":"periodic keyframes",capture_lag_us);
+        printf("video: AR9311 DMA-BUF encoders %dx%d@60 %dkbps in %d strips of %s rows (%u past each join), %s, capture stamps %u us late\n",
+               width,height,kbps,nstrips,rows,strip_ov,
+               !ir_on?"periodic keyframes":ir_columns?"intra refresh by CTU columns":"intra refresh by CTU rows",capture_lag_us);
     }
     return 0;
 }
@@ -488,6 +523,7 @@ static int next_slice(uint8_t *dst, uint32_t room, vframe *out) {
     // In strips the picture ends with its last one.
     out->frame_end = done && pic.strip == (unsigned)nstrips - 1;
     out->strip = nstrips > 1;
+    out->strip_ov = nstrips > 1 ? (int)strip_ov : 0;
     pic.at = end;
     if (done) pic.on = 0;
     return 1;
