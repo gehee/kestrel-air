@@ -41,8 +41,9 @@
 // firmware under it, APP_VERSION), board (stock's board type), model, sensor,
 // hw (the board-ID version, as in the version message), readout (us: the
 // sensor's readout of the picture's rows in the mode running now), exposure
-// (us: each row's, as AE has it now). A key may be missing; a ground that
-// does not know one skips it.
+// (us: each row's, as AE has it now), 864p144=1 (it has that mode), pwr400=1
+// (TX power takes 400 mW and its AUTO, 401). A key may be missing; a ground
+// that does not know one skips it.
 #define KA_MSG_INFO 0x50
 // The radio's TDD frame on the radio clock, once a second while known
 // (radio/frameclock.c): u8 a generation (new each time the frame's edges are

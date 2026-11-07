@@ -6,6 +6,8 @@
 // 25 / 100 / 101 (Lite) and 25 / 100 / 200 / 500 / 501 (Lite+). The 150, 200
 // and 316 mW levels and their AUTO (151, 201, 317) are ours: a ground that
 // has seen KA_FEAT_PWRLVL offers them, so AUTO's top can be set below 500 mW.
+// 400 mW (25 dBm) and its AUTO (401) too, offered where the info says
+// pwr400=1 (the header's feature byte is full).
 //
 // dbm: the board's level for it, stock's table (labels 1 dB above the level:
 // kept, the board's gain after the chip is not known). 316 mW is 24 dBm: what
@@ -17,8 +19,9 @@
 struct power_level { int p; int dbm; int automatic; };
 
 static const struct power_level power_levels[] = {
-    {  25, 13, 0 }, { 100, 19, 0 }, { 150, 21, 0 }, { 200, 22, 0 }, { 316, 24, 0 }, { 500, 26, 0 },
-    { 101, 19, 1 }, { 151, 21, 1 }, { 201, 22, 1 }, { 317, 24, 1 }, { 501, 26, 1 },
+    {  25, 13, 0 }, { 100, 19, 0 }, { 150, 21, 0 }, { 200, 22, 0 }, { 316, 24, 0 }, { 400, 25, 0 },
+    { 500, 26, 0 },
+    { 101, 19, 1 }, { 151, 21, 1 }, { 201, 22, 1 }, { 317, 24, 1 }, { 401, 25, 1 }, { 501, 26, 1 },
 };
 #define POWER_LEVELS_N ((int)(sizeof(power_levels) / sizeof(power_levels[0])))
 

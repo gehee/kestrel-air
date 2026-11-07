@@ -14,6 +14,9 @@ void test_power(void) {
     // 316 mW is 24 dBm, and its AUTO has the same top.
     CHECK(power_level_of(316) && power_level_of(316)->dbm == 24 && !power_level_of(316)->automatic);
     CHECK(power_level_of(317) && power_level_of(317)->dbm == 24 && power_level_of(317)->automatic);
+    // 400 mW is 25 dBm, between 316 and 500.
+    CHECK(power_level_of(400) && power_level_of(400)->dbm == 25 && !power_level_of(400)->automatic);
+    CHECK(power_level_of(401) && power_level_of(401)->dbm == 25 && power_level_of(401)->automatic);
 
     // Every AUTO value is its level + 1, with the level's dBm.
     for (int i = 0; i < POWER_LEVELS_N; i++) {
