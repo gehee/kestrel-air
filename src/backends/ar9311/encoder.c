@@ -36,15 +36,35 @@
 struct camera_plane { int fd; unsigned int size; };
 struct coded_buffer { void *data; unsigned int size; };
 static struct camera_plane camera[BUFFERS][PLANES];
-static struct coded_buffer coded[BUFFERS];
-static int capture_fd = -1, encoder_fd = -1;
-static int capture_running, output_running, encoder_running;
-static int held[BUFFERS];
+static unsigned c_stride[PLANES];   // the camera planes' bytes a line
+static int capture_fd = -1;
+static int capture_running;
+
+// The encoders: one for the whole picture, or one a strip (KA_CMD_STRIPS),
+// each a channel of its own on the WAVE5 that reads its rows straight out of
+// the camera's buffer (each plane's data_offset, which fpvOS's Wave5 patch
+// honours). A strip is encoded as soon as its last row has landed, while the
+// camera still writes the rows under it, so most of a picture is on the radio
+// before its bottom is encoded: the WAVE5 hands a picture's bitstream out
+// only at its end (0.9 ms + 6.3 us a row on the bench), slices or not. The
+// ground joins the strips again and shows a picture once all of them are in.
+#define STRIPS_MAX 4
+struct strip {
+    int fd, output_running, encoder_running;
+    unsigned y, h;                       // its rows of the picture
+    struct coded_buffer coded[BUFFERS];
+};
+static struct strip strip[STRIPS_MAX] = {{.fd = -1}, {.fd = -1}, {.fd = -1}, {.fd = -1}};
+static int nstrips = 1;                  // encoders now: 1 (whole pictures), or 2-4 strips
+static volatile int strips_wanted;       // asked for (KA_CMD_STRIPS), from the next channel
+static unsigned held[BUFFERS];           // bit k: strip k's encoder has the camera buffer
+static unsigned out_strip;               // the strip taken from its encoder next
+static uint64_t out_pts;                 // ...of this picture
 static int enabled, warmup;
 static unsigned long submitted, received, returned;
 static uint64_t progress;
 static uint32_t capture_lag_us;   // row 0's capture -> the capture driver's stamp
-static int slices;                // a picture's slices (KA_SLICE_COUNT)
+static int slices;                // a whole picture's slices (KA_SLICE_COUNT)
 
 // Encoding before the picture is all in memory (the capture driver at depth 1,
 // which hands a buffer over as its frame starts to land): a mark in the luma
@@ -67,15 +87,18 @@ static unsigned requeue;          // buffers done with, their last row still to 
 static uint64_t landed_at[BUFFERS];   // when each buffer's last row has landed (mono us)
 static uint32_t land_us;          // the stamp -> its frame's last row landed
 static unsigned early_n, early_past;  // pictures released at their row, and already past it
-static uint64_t early_wait_us;
+static uint64_t early_wait_us[STRIPS_MAX];
 static size_t camera_y_size[BUFFERS];
 static unsigned y_stride;
-static int early_row, waiting = -1;
+// The marked rows: a whole picture's KA_EARLY_ROW, or each strip's last row.
+// None (nmarks 0) where a buffer comes whole (depth 2 and up).
+static int early_row, nmarks, mark_row[STRIPS_MAX];
+static int waiting = -1, waiting_next;   // the buffer whose rows are landing, its strip next
 static struct timeval waiting_stamp;
-static volatile uint8_t *early_at(unsigned index) { return camera_y[index] + (size_t)early_row * y_stride; }
-static int early_landed(unsigned index) {
-    volatile uint8_t *p = early_at(index);
-    for (int k = 0; k < 8; k++) if (p[k] != early_mark[k]) return 1;
+static volatile uint8_t *early_at(unsigned index, int k) { return camera_y[index] + (size_t)mark_row[k] * y_stride; }
+static int early_landed(unsigned index, int k) {
+    volatile uint8_t *p = early_at(index, k);
+    for (int i = 0; i < 8; i++) if (p[i] != early_mark[i]) return 1;
     return 0;
 }
 
@@ -87,6 +110,7 @@ static int early_landed(unsigned index) {
 // a byte at a time took 6 ms a picture.
 static struct {
     int on, key;
+    unsigned strip;     // the strip it is (strips)
     uint8_t *data;
     size_t size, len, at;
     uint64_t pts;
@@ -105,24 +129,30 @@ static void cleanup(void)
 	image_pause();
 	enum v4l2_buf_type type = CAPTURE;
 	if (capture_running) xioctl(capture_fd, VIDIOC_STREAMOFF, &type);
-	type = OUTPUT;
-	if (output_running) xioctl(encoder_fd, VIDIOC_STREAMOFF, &type);
-	type = CAPTURE;
-	if (encoder_running) xioctl(encoder_fd, VIDIOC_STREAMOFF, &type);
+	for (int k = 0; k < STRIPS_MAX; k++) {
+		struct strip *s = &strip[k];
+		type = OUTPUT;
+		if (s->output_running) xioctl(s->fd, VIDIOC_STREAMOFF, &type);
+		type = CAPTURE;
+		if (s->encoder_running) xioctl(s->fd, VIDIOC_STREAMOFF, &type);
+		for (unsigned int i = 0; i < BUFFERS; i++)
+			if (s->coded[i].data && s->coded[i].data != MAP_FAILED)
+				munmap(s->coded[i].data, s->coded[i].size);
+		if (s->fd >= 0) close(s->fd);
+		memset(s, 0, sizeof(*s));
+		s->fd = -1;
+	}
 	for (unsigned int i = 0; i < BUFFERS; i++) {
-		if (coded[i].data && coded[i].data != MAP_FAILED)
-			munmap(coded[i].data, coded[i].size);
 		if (camera_y[i]) { munmap(camera_y[i], camera_y_size[i]); camera_y[i] = NULL; }
 		for (unsigned int j = 0; j < PLANES; j++)
 			if (camera[i][j].fd >= 0) { close(camera[i][j].fd); camera[i][j].fd = -1; }
 	}
-	if (encoder_fd >= 0) close(encoder_fd);
 	if (capture_fd >= 0) close(capture_fd);
-	capture_fd = encoder_fd = -1;
-    capture_running = output_running = encoder_running = 0;
-    memset(coded, 0, sizeof(coded));
+	capture_fd = -1;
+    capture_running = 0;
     memset(held, 0, sizeof(held));
     pic.on = 0;
+    out_strip = 0;
     waiting = -1;
     requeue = 0;
     venc_running = shared.venc_running = 0;
@@ -173,9 +203,11 @@ static struct v4l2_buffer buffer(unsigned int type, unsigned int memory,
 
 static int queue_camera(unsigned int index)
 {
-	if (early_row) {
-		volatile uint8_t *m = early_at(index);
-		for (int k = 0; k < 8; k++) m[k] = early_mark[k];
+	if (nmarks) {
+		for (int k = 0; k < nmarks; k++) {
+			volatile uint8_t *m = early_at(index, k);
+			for (int i = 0; i < 8; i++) m[i] = early_mark[i];
+		}
 		__sync_synchronize();
 	}
 	struct v4l2_plane p[PLANES] = {0};
@@ -187,7 +219,7 @@ static int queue_camera(unsigned int index)
 // all landed (early mode).
 static int give_back(unsigned index)
 {
-	if (early_row && mono_us() < landed_at[index]) {
+	if (nmarks && mono_us() < landed_at[index]) {
 		requeue |= 1u << index;
 		return 0;
 	}
@@ -203,15 +235,15 @@ static void request_buffers(int fd, unsigned int type, unsigned int memory)
 	if (r.count < BUFFERS) { errno = ENOMEM; fail("buffer count"); }
 }
 
-static int set_control(unsigned int id, int value)
+static int set_control(int fd, unsigned int id, int value)
 {
 	struct v4l2_control c = { .id = id, .value = value };
-	return xioctl(encoder_fd, VIDIOC_S_CTRL, &c);
+	return xioctl(fd, VIDIOC_S_CTRL, &c);
 }
 
-static void control(unsigned int id, int value)
+static void control(int fd, unsigned int id, int value)
 {
-	if (set_control(id, value)) fail("encoder control");
+	if (set_control(fd, id, value)) fail("encoder control");
 }
 
 // Intra refresh (KA_IR above 0, the default): each picture codes a band of
@@ -228,6 +260,96 @@ static int ir_on, ir_kernel = 1;
 static int ir_wanted(void) { return env_int("KA_IR", 2) > 0; }
 
 
+// A strip's share of the bitrate: its share of the rows.
+static int strip_kbps(int kbps, int k) {
+	if (nstrips < 2) return kbps;
+	int v = (int)((int64_t)kbps * strip[k].h / (unsigned)height);
+	return v < 64 ? 64 : v;
+}
+
+// One encoder: the whole picture (k 0 alone) or strip k, `kbps` its share.
+static void encoder_create(int k, const char *path, const struct v4l2_format *cf, int kbps) {
+	struct strip *s = &strip[k];
+	const struct v4l2_pix_format_mplane *f = &cf->fmt.pix_mp;
+	s->fd = open(path, O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	if (s->fd < 0) fail("open encoder");
+	struct v4l2_format ef = *cf;
+	ef.type = OUTPUT;
+	ef.fmt.pix_mp.height = s->h;
+	for (unsigned int j = 0; j < PLANES; j++)
+		ef.fmt.pix_mp.plane_fmt[j].sizeimage = nstrips == 1 ? camera[0][j].size :
+			(j ? (s->h + 1) / 2 : s->h) * c_stride[j];
+	checked(s->fd, VIDIOC_S_FMT, &ef, "encoder source S_FMT");
+	for (unsigned int j = 0; j < PLANES; j++) {
+		// What it reads from its rows on must be in the camera's buffer.
+		const unsigned off = (j ? s->y / 2 : s->y) * c_stride[j];
+		if (ef.fmt.pix_mp.plane_fmt[j].bytesperline != f->plane_fmt[j].bytesperline ||
+		    off + ef.fmt.pix_mp.plane_fmt[j].sizeimage > camera[0][j].size) {
+			fprintf(stderr, "encoder substituted stride or requires a larger source buffer\n");
+			errno = EINVAL; fail("unsupported camera/encoder format");
+		}
+	}
+	ef = (struct v4l2_format) { .type = CAPTURE };
+	ef.fmt.pix_mp = (struct v4l2_pix_format_mplane) {
+		.width = f->width, .height = s->h, .pixelformat = V4L2_PIX_FMT_HEVC,
+		.field = V4L2_FIELD_NONE, .num_planes = 1,
+	};
+	checked(s->fd, VIDIOC_S_FMT, &ef, "encoder HEVC S_FMT");
+	if (ef.fmt.pix_mp.width != f->width || ef.fmt.pix_mp.height != s->h ||
+	    ef.fmt.pix_mp.pixelformat != V4L2_PIX_FMT_HEVC || ef.fmt.pix_mp.num_planes != 1) {
+		fprintf(stderr, "encoder substituted coded format\n");
+		errno = EINVAL; fail("unsupported camera/encoder format");
+	}
+	struct v4l2_streamparm sp = { .type = OUTPUT };
+	sp.parm.output.timeperframe = (struct v4l2_fract) {1, 60};
+	checked(s->fd, VIDIOC_S_PARM, &sp, "encoder frame rate");
+	control(s->fd, V4L2_CID_MPEG_VIDEO_HEVC_LEVEL, V4L2_MPEG_VIDEO_HEVC_LEVEL_4_1);
+	control(s->fd, V4L2_CID_MPEG_VIDEO_BITRATE, kbps * 1000);
+	if (!k) ir_on = ir_wanted() && ir_kernel;
+	// The band sweeps the encoder's own CTU rows: a strip's in fewer pictures.
+	if (ir_on && set_control(s->fd, V4L2_CID_MPEG_VIDEO_INTRA_REFRESH_PERIOD, (int)(s->h + 63) / 64)) {
+		if (k) fail("intra refresh on a strip");
+		perror("intra refresh (a kernel without fpvOS's Wave5 patch), periodic keyframes");
+		ir_kernel = ir_on = 0;
+	}
+	control(s->fd, V4L2_CID_MPEG_VIDEO_GOP_SIZE, ir_on ? 0 : 60);
+	if (ir_on) control(s->fd, V4L2_CID_MPEG_VIDEO_HEVC_CONST_INTRA_PRED, 1);
+	control(s->fd, V4L2_CID_MPEG_VIDEO_FRAME_RC_ENABLE, 1);
+	// Rate control by blocks over a 50 ms buffer: every picture near its share.
+	// With picture-level control over the driver's 1 s buffer, one picture in
+	// a few came out at 33-45 KiB whatever the bitrate, each over the 1.2 x
+	// average that cuts it by a fifth (video/video.c): 34 cuts in 45 s, the
+	// bitrate down to 3.8 Mbit/s of 12. Either alone: the buffer 37-40 cuts,
+	// blocks 15 (8.7 Mbit/s); both: none, 12 Mbit/s, largest 1.2 x average.
+	control(s->fd, V4L2_CID_MPEG_VIDEO_VBV_SIZE, env_int("KA_VBV_MS", 50));
+	control(s->fd, V4L2_CID_MPEG_VIDEO_MB_RC_ENABLE, env_int("KA_CU_RC", 1) != 0);
+	control(s->fd, V4L2_CID_MPEG_VIDEO_HEVC_I_FRAME_QP, 35);
+	control(s->fd, V4L2_CID_MPEG_VIDEO_PREPEND_SPSPPS_TO_IDR, 1);
+	// Whole pictures: slices of whole CTU rows (64 px), 4 at 1080p60 - 5, 5,
+	// 5 and 2 rows. A strip is one slice.
+	if (nstrips == 1) {
+		slices = env_int("KA_SLICE_COUNT", slice_count_default(f->height, 60));
+		const int rows = (int)(f->height + 63) / 64, per = (rows + (slices > 1 ? slices : 1) - 1) / (slices > 1 ? slices : 1);
+		if (slices > 1) {
+			control(s->fd, V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MODE, V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB);
+			control(s->fd, V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_MB, per * (int)((f->width + 63) / 64));
+		}
+	}
+	control(s->fd, V4L2_CID_MPEG_VIDEO_AU_DELIMITER, 0);
+	request_buffers(s->fd, OUTPUT, DMABUF);
+	request_buffers(s->fd, CAPTURE, MMAP);
+	for (unsigned int i = 0; i < BUFFERS; i++) {
+		struct v4l2_plane p = {0};
+		struct v4l2_buffer b = buffer(CAPTURE, MMAP, i, 1, &p);
+		checked(s->fd, VIDIOC_QUERYBUF, &b, "coded QUERYBUF");
+		s->coded[i].size = p.length;
+		s->coded[i].data = mmap(NULL, p.length, PROT_READ, MAP_SHARED,
+				s->fd, p.m.mem_offset);
+		if (s->coded[i].data == MAP_FAILED) fail("coded mmap");
+		checked(s->fd, VIDIOC_QBUF, &b, "coded QBUF");
+	}
+}
+
 int venc_create(int kbps) {
     static int initialized;
     char camera_path[128], encoder_path[128];
@@ -239,8 +361,7 @@ int venc_create(int kbps) {
     if (ar9311_node("ar-cvisp",camera_path,sizeof(camera_path)) ||
         ar9311_node("C&M Wave5 VPU encoder",encoder_path,sizeof(encoder_path))) return -1;
     capture_fd=open(camera_path,O_RDWR|O_NONBLOCK|O_CLOEXEC);
-    encoder_fd=open(encoder_path,O_RDWR|O_NONBLOCK|O_CLOEXEC);
-    if(capture_fd<0 || encoder_fd<0) fail("open camera/encoder");
+    if(capture_fd<0) fail("open camera");
     kbps=kbps<128?128:kbps>40000?40000:kbps;   // the encoder's own range, as the Lite's; radio_tgt_bitrate keeps to the link and the goggle's cap
 	struct v4l2_format cf = { .type = CAPTURE };
 	checked(capture_fd, VIDIOC_G_FMT, &cf, "camera G_FMT");
@@ -248,6 +369,23 @@ int venc_create(int kbps) {
 	if (f->pixelformat != V4L2_PIX_FMT_YUV420M || f->num_planes != PLANES) {
 		fprintf(stderr, "camera must provide three-plane YUV420M\n");
 		errno = EINVAL; fail("unsupported camera/encoder format");
+	}
+	for (unsigned int j = 0; j < PLANES; j++) c_stride[j] = f->plane_fmt[j].bytesperline;
+	// The strips: the picture's CTU rows (64) shared out, the top ones a row
+	// more where they do not divide - 5, 4, 4 and 4 rows at 1080p (the last
+	// 248 lines), 6, 6 and 5, or 9 and 8.
+	{
+		const unsigned rows = (f->height + 63) / 64;
+		nstrips = strips_wanted > 1 ? strips_wanted : 1;
+		if (nstrips > STRIPS_MAX) nstrips = STRIPS_MAX;
+		if ((unsigned)nstrips > rows) nstrips = (int)rows;
+		unsigned y = 0;
+		for (int k = 0; k < nstrips; k++) {
+			const unsigned r = rows / (unsigned)nstrips + ((unsigned)k < rows % (unsigned)nstrips);
+			strip[k].y = y;
+			strip[k].h = k == nstrips - 1 ? f->height - y : r * 64;
+			y += r * 64;
+		}
 	}
 	{
 		unsigned depth = 0;
@@ -260,6 +398,11 @@ int venc_create(int kbps) {
 		land_us = (uint32_t)((uint64_t)line * rows / 1000000) + 200;   // 16.2 ms at 1080p60
 		memset(landed_at, 0, sizeof(landed_at));
 		y_stride = f->plane_fmt[0].bytesperline;
+		// The marks: a whole picture goes at KA_EARLY_ROW, a strip once its
+		// own last row is in.
+		nmarks = !early_row ? 0 : nstrips == 1 ? 1 : nstrips;
+		for (int k = 0; k < nmarks; k++)
+			mark_row[k] = nstrips == 1 ? early_row : (int)(strip[k].y + strip[k].h - 1);
 	}
 	request_buffers(capture_fd, CAPTURE, MMAP);
 	for (unsigned int i = 0; i < BUFFERS; i++) {
@@ -275,7 +418,7 @@ int venc_create(int kbps) {
 			camera[i][j].fd = x.fd;
 			camera[i][j].size = p[j].length;
 		}
-		if (early_row) {
+		if (nmarks) {
 			camera_y_size[i] = p[0].length;
 			camera_y[i] = mmap(NULL, p[0].length, PROT_READ | PROT_WRITE, MAP_SHARED,
 					   capture_fd, p[0].m.mem_offset);
@@ -283,73 +426,7 @@ int venc_create(int kbps) {
 		}
 		if (queue_camera(i)) fail("camera QBUF");
 	}
-
-	struct v4l2_format ef = cf;
-	ef.type = OUTPUT;
-	for (unsigned int j = 0; j < PLANES; j++)
-		ef.fmt.pix_mp.plane_fmt[j].sizeimage = camera[0][j].size;
-	checked(encoder_fd, VIDIOC_S_FMT, &ef, "encoder source S_FMT");
-	for (unsigned int j = 0; j < PLANES; j++) {
-		if (ef.fmt.pix_mp.plane_fmt[j].bytesperline != f->plane_fmt[j].bytesperline ||
-		    ef.fmt.pix_mp.plane_fmt[j].sizeimage > camera[0][j].size) {
-			fprintf(stderr, "encoder substituted stride or requires a larger source buffer\n");
-			errno = EINVAL; fail("unsupported camera/encoder format");
-		}
-	}
-	ef = (struct v4l2_format) { .type = CAPTURE };
-	ef.fmt.pix_mp = (struct v4l2_pix_format_mplane) {
-		.width = f->width, .height = f->height, .pixelformat = V4L2_PIX_FMT_HEVC,
-		.field = V4L2_FIELD_NONE, .num_planes = 1,
-	};
-	checked(encoder_fd, VIDIOC_S_FMT, &ef, "encoder HEVC S_FMT");
-	if (ef.fmt.pix_mp.width != f->width || ef.fmt.pix_mp.height != f->height ||
-	    ef.fmt.pix_mp.pixelformat != V4L2_PIX_FMT_HEVC || ef.fmt.pix_mp.num_planes != 1) {
-		fprintf(stderr, "encoder substituted coded format\n");
-		errno = EINVAL; fail("unsupported camera/encoder format");
-	}
-	struct v4l2_streamparm sp = { .type = OUTPUT };
-	sp.parm.output.timeperframe = (struct v4l2_fract) {1, 60};
-	checked(encoder_fd, VIDIOC_S_PARM, &sp, "encoder frame rate");
-	control(V4L2_CID_MPEG_VIDEO_HEVC_LEVEL, V4L2_MPEG_VIDEO_HEVC_LEVEL_4_1);
-	control(V4L2_CID_MPEG_VIDEO_BITRATE, kbps * 1000);
-	ir_on = ir_wanted() && ir_kernel;
-	if (ir_on && set_control(V4L2_CID_MPEG_VIDEO_INTRA_REFRESH_PERIOD, (f->height + 63) / 64)) {
-		perror("intra refresh (a kernel without fpvOS's Wave5 patch), periodic keyframes");
-		ir_kernel = ir_on = 0;
-	}
-	control(V4L2_CID_MPEG_VIDEO_GOP_SIZE, ir_on ? 0 : 60);
-	if (ir_on) control(V4L2_CID_MPEG_VIDEO_HEVC_CONST_INTRA_PRED, 1);
-	control(V4L2_CID_MPEG_VIDEO_FRAME_RC_ENABLE, 1);
-	// Rate control by blocks over a 50 ms buffer: every picture near its share.
-	// With picture-level control over the driver's 1 s buffer, one picture in
-	// a few came out at 33-45 KiB whatever the bitrate, each over the 1.2 x
-	// average that cuts it by a fifth (video/video.c): 34 cuts in 45 s, the
-	// bitrate down to 3.8 Mbit/s of 12. Either alone: the buffer 37-40 cuts,
-	// blocks 15 (8.7 Mbit/s); both: none, 12 Mbit/s, largest 1.2 x average.
-	control(V4L2_CID_MPEG_VIDEO_VBV_SIZE, env_int("KA_VBV_MS", 50));
-	control(V4L2_CID_MPEG_VIDEO_MB_RC_ENABLE, env_int("KA_CU_RC", 1) != 0);
-	control(V4L2_CID_MPEG_VIDEO_HEVC_I_FRAME_QP, 35);
-	control(V4L2_CID_MPEG_VIDEO_PREPEND_SPSPPS_TO_IDR, 1);
-	// Slices of whole CTU rows (64 px): 4 at 1080p60 - 5, 5, 5 and 2 rows.
-	slices = env_int("KA_SLICE_COUNT", slice_count_default(f->height, 60));
-	const int rows = (int)(f->height + 63) / 64, per = (rows + (slices > 1 ? slices : 1) - 1) / (slices > 1 ? slices : 1);
-	if (slices > 1) {
-		control(V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MODE, V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB);
-		control(V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_MB, per * (int)((f->width + 63) / 64));
-	}
-	control(V4L2_CID_MPEG_VIDEO_AU_DELIMITER, 0);
-	request_buffers(encoder_fd, OUTPUT, DMABUF);
-	request_buffers(encoder_fd, CAPTURE, MMAP);
-	for (unsigned int i = 0; i < BUFFERS; i++) {
-		struct v4l2_plane p = {0};
-		struct v4l2_buffer b = buffer(CAPTURE, MMAP, i, 1, &p);
-		checked(encoder_fd, VIDIOC_QUERYBUF, &b, "coded QUERYBUF");
-		coded[i].size = p.length;
-		coded[i].data = mmap(NULL, p.length, PROT_READ, MAP_SHARED,
-				encoder_fd, p.m.mem_offset);
-		if (coded[i].data == MAP_FAILED) fail("coded mmap");
-		checked(encoder_fd, VIDIOC_QBUF, &b, "coded QBUF");
-	}
+	for (int k = 0; k < nstrips; k++) encoder_create(k, encoder_path, &cf, strip_kbps(kbps, k));
 
     if (f->width != (unsigned)width || f->height != (unsigned)height) {
         errno=EINVAL; fail("capture dimensions");
@@ -357,16 +434,27 @@ int venc_create(int kbps) {
     capture_lag_us=ar9311_capture_lag_us();
     venc_kbps=kbps; venc_fps=60;
     submitted=received=returned=0;
+    out_strip=0;
+    early_n=early_past=0; memset(early_wait_us,0,sizeof(early_wait_us));   // this channel's own
     enabled=1; warmup=8; progress=mono_us();
-    printf("video: AR9311 DMA-BUF encoder %dx%d@60 %dkbps, %d slices a picture, %s, capture stamps %u us late\n",
-           width,height,kbps,slices>1?slices:1,ir_on?"intra refresh by CTU rows":"periodic keyframes",capture_lag_us);
+    if (nstrips == 1)
+        printf("video: AR9311 DMA-BUF encoder %dx%d@60 %dkbps, %d slices a picture, %s, capture stamps %u us late\n",
+               width,height,kbps,slices>1?slices:1,ir_on?"intra refresh by CTU rows":"periodic keyframes",capture_lag_us);
+    else {
+        char rows[64]; int at=0;
+        for (int k=0;k<nstrips;k++) at+=snprintf(rows+at,sizeof(rows)-(size_t)at,"%s%u",k?"/":"",strip[k].h);
+        printf("video: AR9311 DMA-BUF encoders %dx%d@60 %dkbps in %d strips of %s rows, %s, capture stamps %u us late\n",
+               width,height,kbps,nstrips,rows,ir_on?"intra refresh by CTU rows":"periodic keyframes",capture_lag_us);
+    }
     return 0;
 }
 void venc_start(void) {
     enum v4l2_buf_type ct=CAPTURE,ot=OUTPUT;
     checked(capture_fd,VIDIOC_STREAMON,&ct,"camera STREAMON"); capture_running=1;
-    checked(encoder_fd,VIDIOC_STREAMON,&ot,"encoder OUTPUT STREAMON"); output_running=1;
-    checked(encoder_fd,VIDIOC_STREAMON,&ct,"encoder CAPTURE STREAMON"); encoder_running=1;
+    for (int k=0;k<nstrips;k++) {
+        checked(strip[k].fd,VIDIOC_STREAMON,&ot,"encoder OUTPUT STREAMON"); strip[k].output_running=1;
+        checked(strip[k].fd,VIDIOC_STREAMON,&ct,"encoder CAPTURE STREAMON"); strip[k].encoder_running=1;
+    }
     venc_running=shared.venc_running=1;
 }
 void venc_stop_destroy(void) {
@@ -395,23 +483,27 @@ static int next_slice(uint8_t *dst, uint32_t room, vframe *out) {
     const size_t end = slice_end(pic.data, pic.len, pic.at), n = end - pic.at;
     if (n > room) { errno = EMSGSIZE; return recover("encoded slice exceeds packet capacity"); }
     memcpy(dst, pic.data + pic.at, n);
+    const int done = end >= pic.len;
     out->len = (uint32_t)n; out->type = pic.key; out->pts = pic.pts;
-    out->frame_end = end >= pic.len;
+    // In strips the picture ends with its last one.
+    out->frame_end = done && pic.strip == (unsigned)nstrips - 1;
+    out->strip = nstrips > 1;
     pic.at = end;
-    if (out->frame_end) pic.on = 0;
+    if (done) pic.on = 0;
     return 1;
 }
 // The camera and the encoder's input are serviced first on every call, a
 // picture's slices still to go or not: handing four slices out one by one
 // (each waits for the radio) used to hold the next picture's encode back, by
 // 18 ms at times.
-// A finished picture from the encoder, its first slice into dst: 1, or 0
-// when none is ready.
+// A finished picture (or the next strip) from its encoder, its first slice
+// into dst: 1, or 0 when none is ready.
 static int take_coded(uint8_t *dst,uint32_t room,vframe *out) {
+    struct strip *s=&strip[out_strip];
     struct v4l2_plane p[1]={0};
     struct v4l2_buffer b=buffer(CAPTURE,MMAP,0,1,p);
-    if(xioctl(encoder_fd,VIDIOC_DQBUF,&b)) return errno==EAGAIN ? 0 : recover("coded DQBUF");
-    if(b.index>=BUFFERS || p[0].bytesused>coded[b.index].size ||
+    if(xioctl(s->fd,VIDIOC_DQBUF,&b)) return errno==EAGAIN ? 0 : recover("coded DQBUF");
+    if(b.index>=BUFFERS || p[0].bytesused>s->coded[b.index].size ||
        p[0].bytesused<=p[0].data_offset || (b.flags&V4L2_BUF_FLAG_ERROR)) {
         errno=EIO; return recover("encoded frame");
     }
@@ -421,42 +513,91 @@ static int take_coded(uint8_t *dst,uint32_t room,vframe *out) {
         if(!d) { errno=ENOMEM; return recover("coded picture copy"); }
         pic.data=d; pic.size=pic.len;
     }
-    memcpy(pic.data,(const uint8_t *)coded[b.index].data+p[0].data_offset,pic.len);
+    memcpy(pic.data,(const uint8_t *)s->coded[b.index].data+p[0].data_offset,pic.len);
     pic.key=(b.flags&V4L2_BUF_FLAG_KEYFRAME)?1:0;
     // Row 0's capture, as the stamps of the HiSilicon backend are: the
     // capture driver stamps its buffers when it hands them over.
     pic.pts=(uint64_t)b.timestamp.tv_sec*1000000+b.timestamp.tv_usec-capture_lag_us;
-    if(xioctl(encoder_fd,VIDIOC_QBUF,&b)) return recover("coded requeue");
+    if(xioctl(s->fd,VIDIOC_QBUF,&b)) return recover("coded requeue");
+    // A picture's strips in order, all of one capture: a strip of another
+    // would show two moments on the ground's screen at once.
+    if(out_strip && pic.pts!=out_pts) { errno=EIO; return recover("strips out of step"); }
+    out_pts=pic.pts; pic.strip=out_strip;
+    out_strip=(out_strip+1)%(unsigned)nstrips;
     pic.on=1;
-    received++; left_frames=submitted-received; progress=mono_us();
+    if(!out_strip) { received++; left_frames=submitted-received; }
+    progress=mono_us();
     return next_slice(dst,room,out);
 }
-// A camera buffer to the encoder.
-static int submit_camera(unsigned index, struct timeval stamp) {
+// A camera buffer to encoder k: the whole of it, or strip k's rows of each
+// plane (the chroma planes' rows half as many).
+static int submit_camera(unsigned index, struct timeval stamp, int k) {
+    const struct strip *s=&strip[k];
     struct v4l2_plane p[PLANES]={0};
     struct v4l2_buffer b=buffer(OUTPUT,DMABUF,index,PLANES,p);
     b.timestamp=stamp;
     for(unsigned j=0;j<PLANES;j++) {
         p[j].m.fd=camera[index][j].fd;
         p[j].length=p[j].bytesused=camera[index][j].size;
+        if(nstrips>1) {
+            p[j].data_offset=(j?s->y/2:s->y)*c_stride[j];
+            p[j].bytesused=p[j].data_offset+(j?(s->h+1)/2:s->h)*c_stride[j];
+        }
     }
-    if(xioctl(encoder_fd,VIDIOC_QBUF,&b)) return recover("encoder DMA-BUF QBUF");
-    held[index]=1; submitted++; left_frames=submitted-received;
+    if(xioctl(s->fd,VIDIOC_QBUF,&b)) return recover("encoder DMA-BUF QBUF");
+    held[index]|=1u<<k;
+    if(!k) { submitted++; left_frames=submitted-received; }
+    return 0;
+}
+// The landing buffer's strips whose rows are in, each to its encoder - all of
+// them (force) once a newer buffer has come. Then the buffer is done waiting.
+static int release_landed(int force) {
+    const uint64_t st=(uint64_t)waiting_stamp.tv_sec*1000000+waiting_stamp.tv_usec;
+    while(waiting>=0 && waiting_next<nstrips) {
+        const int k=waiting_next;
+        if(!force && k<nmarks && !early_landed((unsigned)waiting,k)) return 0;
+        const uint64_t now=mono_us();
+        if(k<nmarks) early_wait_us[k]+=now>st?now-st:0;
+        if(submit_camera((unsigned)waiting,waiting_stamp,k)) return -1;
+        waiting_next++;
+    }
+    if(waiting<0) return 0;
+    waiting=-1;
+    if(nmarks && ++early_n%300==0) {
+        if(nstrips==1)
+            printf("video: early start at row %d: %u pictures, released %.2f ms after the stamp on average, "
+                   "%u already past it at hand-over\n",early_row,early_n,early_wait_us[0]/1000.0/early_n,early_past);
+        else {
+            char at[64]; int n=0;
+            for(int k=0;k<nstrips;k++) n+=snprintf(at+n,sizeof(at)-(size_t)n,"%s%.2f",k?"/":"",early_wait_us[k]/1000.0/early_n);
+            printf("video: strips released %s ms after the stamp on average (%u pictures), "
+                   "%u already past their first at hand-over\n",at,early_n,early_past);
+        }
+        early_n=0; early_past=0; memset(early_wait_us,0,sizeof(early_wait_us));
+    }
     return 0;
 }
 static int get_frame(uint8_t *dst,uint32_t room,vframe *out) {
     struct v4l2_plane p[PLANES]={0};
-    struct v4l2_buffer b=buffer(OUTPUT,DMABUF,0,PLANES,p);
-    while(xioctl(encoder_fd,VIDIOC_DQBUF,&b)==0) {
-        if(b.index>=BUFFERS || !held[b.index] || (b.flags&V4L2_BUF_FLAG_ERROR)) {
-            errno=EIO; return recover("encoder source return");
-        }
-        held[b.index]=0;
-        if(give_back(b.index)) return recover("camera QBUF");
-        returned++; progress=mono_us();
+    struct v4l2_buffer b;
+    // Back to the camera once every encoder has done with it - and none of
+    // its strips is still to go (the landing buffer).
+    for(int k=0;k<nstrips;k++) {
         memset(p,0,sizeof(p)); b=buffer(OUTPUT,DMABUF,0,PLANES,p);
+        while(xioctl(strip[k].fd,VIDIOC_DQBUF,&b)==0) {
+            if(b.index>=BUFFERS || !(held[b.index]>>k&1) || (b.flags&V4L2_BUF_FLAG_ERROR)) {
+                errno=EIO; return recover("encoder source return");
+            }
+            held[b.index]&=~(1u<<k);
+            if(!held[b.index] && waiting!=(int)b.index) {
+                if(give_back(b.index)) return recover("camera QBUF");
+                returned++;
+            }
+            progress=mono_us();
+            memset(p,0,sizeof(p)); b=buffer(OUTPUT,DMABUF,0,PLANES,p);
+        }
+        if(errno!=EAGAIN) return recover("source DQBUF");
     }
-    if(errno!=EAGAIN) return recover("source DQBUF");
     for(unsigned i=0;requeue && i<BUFFERS;i++)
         if((requeue>>i&1) && mono_us()>=landed_at[i]) {
             requeue&=~(1u<<i);
@@ -480,26 +621,22 @@ static int get_frame(uint8_t *dst,uint32_t room,vframe *out) {
             }
             progress=mono_us();
         } else {
-            // One waiting at a time; a newer one sends the older on.
-            if(waiting>=0 && submit_camera((unsigned)waiting,waiting_stamp)) return -1;
-            waiting=-1;
-            if(early_row && !early_landed(index)) { waiting=(int)index; waiting_stamp=b.timestamp; }
-            else {
-                if(early_row) early_past++;   // its mark already gone: should not happen
-                if(submit_camera(index,b.timestamp)) return -1;
+            // One landing at a time; a newer one sends the older's strips on.
+            // A buffer done with by every encoder while it waited (an early
+            // strip back before the next went in) goes back once it is done.
+            if(waiting>=0) {
+                const int w=waiting;
+                if(release_landed(1)) return -1;
+                if(!held[w]) { if(give_back((unsigned)w)) return recover("camera QBUF"); returned++; }
             }
+            if(nmarks && early_landed(index,0)) early_past++;   // its first mark already gone: should not happen
+            waiting=(int)index; waiting_stamp=b.timestamp; waiting_next=0;
         }
     } else if(errno!=EAGAIN) return recover("camera DQBUF");
-    if(waiting>=0 && early_landed((unsigned)waiting)) {
-        uint64_t now=mono_us(), st=(uint64_t)waiting_stamp.tv_sec*1000000+waiting_stamp.tv_usec;
-        early_wait_us+=now>st?now-st:0;
-        if(++early_n%300==0) {
-            printf("video: early start at row %d: %u pictures, released %.2f ms after the stamp on average, "
-                   "%u already past it at hand-over\n",early_row,early_n,early_wait_us/1000.0/early_n,early_past);
-            early_n=0; early_wait_us=0; early_past=0;
-        }
-        if(submit_camera((unsigned)waiting,waiting_stamp)) return -1;
-        waiting=-1;
+    if(waiting>=0) {
+        const int w=waiting;
+        if(release_landed(0)) return -1;
+        if(waiting<0 && !held[w]) { if(give_back((unsigned)w)) return recover("camera QBUF"); returned++; }
     }
     if(!warmup && ar9311_controls_alive()) { errno=EIO; return recover("camera controller exited"); }
     if(pic.on) return next_slice(dst,room,out);
@@ -513,10 +650,11 @@ int stream_get(uint8_t *dst,uint32_t room,vframe *out,int timeout_ms) {
     while(venc_running) {
         r=get_frame(dst,room,out);
         if(r || mono_us()>=until) break;
-        struct pollfd pf[2]={{capture_fd,POLLIN,0},{encoder_fd,POLLIN,0}};
+        struct pollfd pf[1+STRIPS_MAX]={{capture_fd,POLLIN,0}};
+        for(int k=0;k<nstrips;k++) pf[1+k]=(struct pollfd){strip[k].fd,POLLIN,0};
         // 0.2 ms while a buffer waits for its rows to land, else 2 ms
         struct timespec ts={0,waiting>=0 || requeue?200000:2000000};
-        if(ppoll(pf,2,&ts,NULL)<0 && errno!=EINTR) { r=recover("video poll"); break; }
+        if(ppoll(pf,(nfds_t)(1+nstrips),&ts,NULL)<0 && errno!=EINTR) { r=recover("video poll"); break; }
     }
     pthread_mutex_unlock(&venc_mtx);
     return r;
@@ -548,7 +686,9 @@ void set_venc_bitrate(int f,int kbps,int reason) {
     kbps=kbps<128?128:kbps>40000?40000:kbps;   // the encoder's own range, as the Lite's; radio_tgt_bitrate keeps to the link and the goggle's cap
     pthread_mutex_lock(&venc_mtx);
     if(venc_running && kbps!=venc_kbps) {
-        if(set_control(V4L2_CID_MPEG_VIDEO_BITRATE,kbps*1000)) recover("encoder bitrate");
+        int bad=0;
+        for(int k=0;k<nstrips && !bad;k++) bad=set_control(strip[k].fd,V4L2_CID_MPEG_VIDEO_BITRATE,strip_kbps(kbps,k)*1000);
+        if(bad) recover("encoder bitrate");
         else venc_kbps=kbps;
     }
     pthread_mutex_unlock(&venc_mtx);
@@ -560,6 +700,22 @@ void video_scale_bitrate(int num,int den) {
 }
 void video_enable_idr(int on) {
     pthread_mutex_lock(&venc_mtx);
-    if(on && venc_running && set_control(V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME,0)) recover("encoder keyframe");
+    // Every strip: the ground decodes each on its own.
+    for(int k=0;on && venc_running && k<nstrips;k++)
+        if(set_control(strip[k].fd,V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME,0)) { recover("encoder keyframe"); break; }
     pthread_mutex_unlock(&venc_mtx);
+}
+// KA_CMD_STRIPS (and the link going down: 0): taken at the next channel,
+// which this asks the read loop for, between pictures.
+void video_set_strips(int n) {
+    n=n<2?1:n>STRIPS_MAX?STRIPS_MAX:n;
+    const int was=strips_wanted>1?strips_wanted:1;
+    strips_wanted=n;
+    if(n==was) return;
+    printf("video: %s\n",n>1?"strips asked for":"whole pictures again");
+    if(venc_running) venc_recreate=1;
+}
+void video_strips(int *now,int *max) {
+    *now=venc_running?nstrips:(strips_wanted>1?strips_wanted:1);
+    *max=STRIPS_MAX;
 }

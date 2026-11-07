@@ -26,6 +26,7 @@ typedef struct {
     uint64_t pts;
     uint32_t len;
     int frame_end;
+    int strip;          // a strip of the picture, its own stream (KA_SLICE_STRIP)
 } vframe;
 
 int  lat_info(void);

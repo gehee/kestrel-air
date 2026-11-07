@@ -42,8 +42,10 @@
 // hw (the board-ID version, as in the version message), readout (us: the
 // sensor's readout of the picture's rows in the mode running now), exposure
 // (us: each row's, as AE has it now), 864p144=1 (it has that mode), pwr400=1
-// (TX power takes 400 mW and its AUTO, 401). A key may be missing; a ground
-// that does not know one skips it.
+// (TX power takes 400 mW and its AUTO, 401), strips=N/M (it encodes up to M
+// strips, N now: KA_CMD_STRIPS), run (a number new each time kestrel-air
+// starts: a ground sends its settings again when it changes). A key may be
+// missing; a ground that does not know one skips it.
 #define KA_MSG_INFO 0x50
 // The radio's TDD frame on the radio clock, once a second while known
 // (radio/frameclock.c): u8 a generation (new each time the frame's edges are
@@ -61,6 +63,9 @@
 #define KA_CMD_MAX_EXP  0x43   // u32 LE: the auto exposure's longest exposure in us, 0 = none
                                // (the camera's own); an air unit that takes it says maxexp=1
                                // in its info (KA_MSG_INFO)
+#define KA_CMD_STRIPS   0x44   // u8: strips a picture is encoded in (KA_SLICE_STRIP), 0 or 1:
+                               // whole pictures; an air unit that has them says strips=N/M in
+                               // its info, and goes back to whole pictures when the link drops
 
 // ---- the video packet ----------------------------------------------------------
 // 00 00 00 01 | header (42) | extras (12) | slice | ee 29 55 9f
@@ -86,7 +91,7 @@
 #define KA_H_RADIO_MS 26   // u32 LE: the radio clock, ms (with KA_FEAT_APCLOCK: at encoder out)
 #define KA_H_CAP_MS   30   // ms from capture to the packet being built
 #define KA_H_EXT_LEN  31   // KA_EXT_LEN
-#define KA_H_SLICE    32   // slice index | KA_SLICE_MORE | KA_SLICE_LAST
+#define KA_H_SLICE    32   // slice index | KA_SLICE_MORE | KA_SLICE_LAST | KA_SLICE_STRIP
 #define KA_H_TAG      33   // ours: KA_TAG
 #define KA_H_SET_FPS  34   // the configured frame rate
 // Ours (KA_FEAT_LATINFO), each a u16 LE in 10 us units, clipped to 65535:
@@ -98,6 +103,11 @@
 #define KA_SLICE_INDEX 0x1f
 #define KA_SLICE_MORE  0x20
 #define KA_SLICE_LAST  0x40
+// Ours: the slice is a strip of the picture, its index the strip's - each
+// strip its own stream (its own parameter sets, a picture of the strip's
+// rows), strips top to bottom, the picture's number shared. Only to a ground
+// that asked for strips (KA_CMD_STRIPS).
+#define KA_SLICE_STRIP 0x80
 
 // The extras: 06 02 <XOR32 of the slice>, 06 01 <bytes sent since link-up>.
 #define KA_EXT_XOR   0x02

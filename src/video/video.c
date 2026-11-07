@@ -248,7 +248,7 @@ static void *read_thread(void *arg) {
 
         if (!pkt && !(pkt = ring_reserve(PKT_MAX))) { usleep(2000); continue; }
         cache_monitor();
-        vframe f;
+        vframe f = {0};
         uint8_t *payload = pkt + HDR + EXT;
         int r = stream_get(payload + stash_len, PKT_MAX - HDR - EXT - 4 - stash_len, &f, 50);
         uint64_t t_got = mono_us();
@@ -310,7 +310,7 @@ static void *read_thread(void *arg) {
         memcpy(h + KA_H_RADIO_MS, &rt, 4);
         h[KA_H_CAP_MS] = (uint8_t)(now - (uint32_t)(f.pts / 1000));
         h[KA_H_EXT_LEN] = EXT;
-        h[KA_H_SLICE] = (uint8_t)(slice_idx & KA_SLICE_INDEX);
+        h[KA_H_SLICE] = (uint8_t)(slice_idx & KA_SLICE_INDEX) | (f.strip ? KA_SLICE_STRIP : 0);
         if (!f.frame_end) {
             h[KA_H_SLICE] |= KA_SLICE_MORE;
             if (++slice_idx > KA_SLICE_INDEX) printf("video: slice index %d\n", slice_idx);
@@ -417,7 +417,7 @@ static void *send_thread(void *arg) {
         // The radio's own backlog on port 3 trims the rate.
         uint32_t now = raw_ms();
         if (cfg_get("video_strategy", 0) != 2 && radio_connected() && (fc_bitmap & 1) &&
-            now - last_check > 0x31 && (h[KA_H_SLICE] >> 5) != 1) {
+            now - last_check > 0x31 && (h[KA_H_SLICE] & (KA_SLICE_MORE | KA_SLICE_LAST)) != KA_SLICE_MORE) {
             last_check = now;
             int left = radio_ringbuf_left();
             if (left >= 0) {
@@ -508,7 +508,12 @@ static void *drop_thread(void *arg) {
 
 void video_link(int up) {
     if (up) busy &= ~4;
-    else busy |= 4;
+    else {
+        busy |= 4;
+        // Strips only for the ground that asked (KA_CMD_STRIPS): whatever
+        // ground the link finds next asks again.
+        video_set_strips(0);
+    }
 }
 
 int video_start(void) {

@@ -222,6 +222,9 @@ void tune_poll(void) {
 // times - always with intra refresh or four slices, now and then without
 // (2026-10-04/05: 50 fps out of 100 in, capture stamps 20 ms apart).
 int video_low_delay_lines(void) { return ir_rows() > 0 ? 128 : 64; }
+// No strips on the HiSilicon encoder: whole pictures, in slices.
+void video_set_strips(int n) { (void)n; }
+void video_strips(int *now, int *max) { *now = *max = 1; }
 int lat_info(void) { static int v = -1; if (v < 0) v = env_int("KA_LATINFO", 1) != 0; return v; }
 
 uint8_t video_features(void) {

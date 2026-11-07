@@ -309,6 +309,7 @@ void dispatch(const uint8_t *p, int len) {
     case KA_CMD_MAX_KBPS: if (len >= 5) radio_set_max_kbps(v); break;
     case KA_CMD_MAX_BW:   if (len >= 2) radio_set_max_bw(p[1]); break;
     case KA_CMD_MAX_EXP:  if (len >= 5 && v >= 0) image_set_max_exposure((unsigned)v); break;
+    case KA_CMD_STRIPS:   if (len >= 2) video_set_strips(p[1]); break;
     // No flight logs on the air unit's flash any more, whatever the goggle's
     // Debug Info says (/tmp/air.log, in RAM, has the same output).
     case KA_CMD_LOGS:     break;

@@ -21,6 +21,11 @@ int  video_send_start(void);
 int  video_send_stop(void);
 void video_set_format(int w, int h, int fps, int sensor_fps);
 int  video_low_delay_lines(void);        // for camera_set_low_delay_lines
+// Strips (KA_CMD_STRIPS): the strips a picture is to be encoded in (0 or 1:
+// whole pictures), taken at the next channel; how many it is in now and the
+// most this backend encodes (1: none).
+void video_set_strips(int n);
+void video_strips(int *now, int *max);
 
 // What this air app can do (KA_FEAT_* in protocol/kestrel_air.h), announced
 // in the version message and every slice header.
