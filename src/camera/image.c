@@ -356,6 +356,11 @@ void image_set_scene(int v) {
 
 void image_low_power(int on) { (void)on; }       // print-only in stock
 
+// The goggle's Max Exposure: the cap here is taken when the route is built
+// (image_start), not while it runs, so the info does not offer it.
+int image_max_exposure_live(void) { return 0; }
+int image_set_max_exposure(unsigned us) { (void)us; return -1; }
+
 // All the image settings at once
 void image_apply_all(void) {
     pthread_mutex_lock(&mtx);

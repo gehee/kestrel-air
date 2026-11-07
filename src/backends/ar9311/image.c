@@ -22,6 +22,31 @@ static int ae_fd=-1, awb_fd=-1;
 static pthread_mutex_t controls_lock=PTHREAD_MUTEX_INITIALIZER;
 static void pause_locked(void);
 
+// The AE's exposure cap, which it reads at start and again on a SIGHUP: the
+// goggle's VIDEO > Max Exposure applies live, from the AE's operating point.
+#define CAP_FILE "/run/kestrel-air/max-exposure-us"
+static void write_cap(void) {
+    FILE *f = fopen(CAP_FILE, "w");
+    if (!f) { fprintf(stderr, "camera: %s: %m\n", CAP_FILE); return; }
+    fprintf(f, "%u\n", image_max_exposure_us);
+    if (fclose(f)) fprintf(stderr, "camera: %s: %m\n", CAP_FILE);
+}
+int image_max_exposure_live(void) { return 1; }
+// The EV goes over the AE's control socket (ar9311_camera_set); the cap
+// through its file, read again on a SIGHUP.
+int image_set_max_exposure(unsigned us) {
+    if (us > 1000000) return -1;
+    pthread_mutex_lock(&controls_lock);
+    if (us != image_max_exposure_us) {
+        image_max_exposure_us = us;
+        printf("camera: exposure capped at %u us%s\n", us, us ? "" : " - none, the tuning's own");
+        write_cap();
+        if (ae > 0) kill(ae, SIGHUP);
+    }
+    pthread_mutex_unlock(&controls_lock);
+    return 0;
+}
+
 static void stop(pid_t *p) {
     if (*p <= 0) return;
     kill(*p, SIGTERM);
@@ -135,10 +160,7 @@ int image_start(int fps, int angle) {
         fprintf(stderr, "camera: launcher must supply tuning and verified white-balance settings\n");
         return -1;
     }
-    if (image_max_exposure_us) {
-        fprintf(stderr, "camera: --max-exposure-us is not supported by this backend\n");
-        return -1;
-    }
+    if (image_max_exposure_us) printf("camera: exposure capped at %u us, the gain making up the rest\n", image_max_exposure_us);
     puts("camera: source AE/AWB; remote EV and auto/locked white balance");
     return 0;
 }
@@ -153,8 +175,13 @@ static int start_locked(void) {
     int ok = fprintf(f, "%u\n", (unsigned)red * 65536u + (unsigned)blue) > 0;
     if (fclose(f)) ok = 0;
     if (!ok) return -1;
+    // --max-exposure-us: the AE holds the exposure there and raises the gain
+    // instead (its table goes to 10 ms before any gain, 16.5 ms in the dark).
+    // Through the file, which a new cap rewrites (image_set_max_exposure).
+    write_cap();
     char *a[] = {"ar9311-aed", "--sensor-device", sensor, "--tuning",
-        getenv("KA_CAMERA_TUNING"), "--stats", "300", "--control-fd", "3", NULL};
+        getenv("KA_CAMERA_TUNING"), "--stats", "300", "--control-fd", "3",
+        "--max-exposure-file", CAP_FILE, NULL};
     char *b[] = {"ar9311-awbd", getenv("KA_WB_ORDER"), getenv("KA_WB_RED"), getenv("KA_WB_BLUE"), "--control-fd", "3", NULL};
     if(spawn_controller(&ae,&ae_fd,a) || spawn_controller(&awb,&awb_fd,b) || apply_saved()) {
         pause_locked();return -1;

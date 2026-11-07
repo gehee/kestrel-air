@@ -58,6 +58,9 @@
 #define KA_CMD_MAX_KBPS 0x40   // u32 LE: video bitrate cap in kbps, 0 = none
 #define KA_CMD_MAX_BW   0x41   // u8: video link bandwidth cap in MHz (20, or 40/0 = none)
 #define KA_CMD_LOGS     0x42   // u8: the goggle's Debug Info; ignored (the air keeps no logs on its flash)
+#define KA_CMD_MAX_EXP  0x43   // u32 LE: the auto exposure's longest exposure in us, 0 = none
+                               // (the camera's own); an air unit that takes it says maxexp=1
+                               // in its info (KA_MSG_INFO)
 
 // ---- the video packet ----------------------------------------------------------
 // 00 00 00 01 | header (42) | extras (12) | slice | ee 29 55 9f

@@ -25,3 +25,7 @@ void image_set_contrast(int v);
 void image_set_3dnr(int menu);
 void image_set_2dnr(int menu);
 void image_low_power(int on);
+// Ours: the cap on the auto exposure, changed while it runs (KA_CMD_MAX_EXP),
+// where the backend can (image_max_exposure_live; its info then says maxexp=1).
+int  image_max_exposure_live(void);
+int  image_set_max_exposure(unsigned us);   // 0: none; -1 where not live

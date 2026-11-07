@@ -177,11 +177,12 @@ static void send_info(void) {
     memcpy(out, m, (size_t)len);
     image_isp_info isp;
     image_get_info(&isp);
-    // 864p144 and the 400 mW level have no feature bit (the header's byte is
-    // full): said here.
-    const int n = len + snprintf(out + len, sizeof(out) - (size_t)len, "readout=%u\nexposure=%u\n%spwr400=1\n",
+    // 864p144, the 400 mW level and the live exposure cap (KA_CMD_MAX_EXP)
+    // have no feature bit (the header's byte is full): said here.
+    const int n = len + snprintf(out + len, sizeof(out) - (size_t)len, "readout=%u\nexposure=%u\n%s%spwr400=1\n",
                                  camera_readout_us(), (unsigned)isp.exp_time_us,
-                                 camera_has_864p144() ? "864p144=1\n" : "");
+                                 camera_has_864p144() ? "864p144=1\n" : "",
+                                 image_max_exposure_live() ? "maxexp=1\n" : "");
     ground_send((const uint8_t *)out, n < (int)sizeof(out) ? n : (int)sizeof(out) - 1);
 }
 
