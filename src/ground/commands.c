@@ -17,6 +17,9 @@
 #include "app/state.h"
 #include "ground/ground.h"
 #include "camera/image.h"
+#ifdef KA_PLATFORM_AR9311
+#include "backends/ar9311/camera.h"
+#endif
 #include "common/clock.h"
 #include "common/crc.h"
 #include "kestrel_air.h"
@@ -206,6 +209,18 @@ static int32_t u32at(const uint8_t *p) {
 void dispatch(const uint8_t *p, int len) {
     int id = p[0];
     int32_t v = len >= 5 ? u32at(p + 1) : 0;
+#ifdef KA_PLATFORM_AR9311
+    // Native camera values are reported/persisted only after live application.
+    // The SG acknowledgement confirms reception, not camera actuation.
+    if(id==0x02 || id==0x05) {
+        if(len!=5 || ar9311_camera_set(id,v)) fprintf(stderr,"camera: rejected command 0x%02x value=%d\n",id,v);
+        shared.cam_flag=1;
+        return;
+    }
+    if(id==0x01 || id==0x03 || id==0x04 || id==0x06 || id==0x0e || id==0x1b || id==0x1c || id==0x27) {
+        fprintf(stderr,"camera: unsupported native command 0x%02x\n",id);return;
+    }
+#endif
     switch (id) {
     case 0x01: if (len < 5) { puts("ground: argument missing"); break; }
                cfg_set("scenes", v); cfg_save(); image_set_scene(v); break;

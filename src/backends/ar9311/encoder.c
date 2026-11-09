@@ -16,6 +16,7 @@
 #include <linux/videodev2.h>
 #include <poll.h>
 #include <signal.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,6 +41,7 @@ static int capture_fd = -1, encoder_fd = -1;
 static int capture_running, output_running, encoder_running;
 static int held[BUFFERS];
 static int enabled, warmup;
+static atomic_int refresh_enabled;
 static unsigned long submitted, received, returned;
 static uint64_t progress;
 int tune[T_N];
@@ -73,6 +75,7 @@ static void cleanup(void)
     memset(coded, 0, sizeof(coded));
     memset(held, 0, sizeof(held));
     venc_running = shared.venc_running = 0;
+    atomic_store(&refresh_enabled, 0);
     left_frames = 0;
 }
 
@@ -145,6 +148,21 @@ static void control(unsigned int id, int value)
 	if (set_control(id, value)) fail("encoder control");
 }
 
+static int intra_refresh(void)
+{
+	struct v4l2_queryctrl q = { .id = V4L2_CID_MPEG_VIDEO_INTRA_REFRESH_PERIOD };
+	if (xioctl(encoder_fd, VIDIOC_QUERYCTRL, &q)) {
+		if (errno == EINVAL) return 0; /* Older fpvOS: retain periodic IDRs. */
+		fail("encoder refresh query");
+	}
+	if (q.flags & V4L2_CTRL_FLAG_DISABLED) return 0;
+	/* One CTU row per picture at 1080p: a complete sweep in 17 pictures.
+	 * Keep explicit keyframe requests for joining and error recovery.
+	 */
+	control(V4L2_CID_MPEG_VIDEO_INTRA_REFRESH_PERIOD, 17);
+	return 1;
+}
+
 
 int venc_create(int kbps) {
     static int initialized;
@@ -212,8 +230,16 @@ int venc_create(int kbps) {
 	checked(encoder_fd, VIDIOC_S_PARM, &sp, "encoder frame rate");
 	control(V4L2_CID_MPEG_VIDEO_HEVC_LEVEL, V4L2_MPEG_VIDEO_HEVC_LEVEL_4_1);
 	control(V4L2_CID_MPEG_VIDEO_BITRATE, kbps * 1000);
-	control(V4L2_CID_MPEG_VIDEO_GOP_SIZE, 60);
+	int refresh = intra_refresh();
+	atomic_store(&refresh_enabled, refresh);
+	control(V4L2_CID_MPEG_VIDEO_GOP_SIZE, refresh ? 0 : 60);
 	control(V4L2_CID_MPEG_VIDEO_FRAME_RC_ENABLE, 1);
+	control(V4L2_CID_MPEG_VIDEO_MB_RC_ENABLE, 1);
+	/* Wave5 passes this control to firmware in milliseconds. The 1000 ms
+	 * default allows large IDRs to stall the radio once per GOP. Keep its
+	 * rate-control reservoir small without buffering frames at the receiver.
+	 */
+	control(V4L2_CID_MPEG_VIDEO_VBV_SIZE, 17);
 	control(V4L2_CID_MPEG_VIDEO_HEVC_I_FRAME_QP, 35);
 	control(V4L2_CID_MPEG_VIDEO_PREPEND_SPSPPS_TO_IDR, 1);
 	control(V4L2_CID_MPEG_VIDEO_AU_DELIMITER, 0);
@@ -237,6 +263,7 @@ int venc_create(int kbps) {
     submitted=received=returned=0;
     enabled=1; warmup=8; progress=mono_us();
     printf("video: AR9311 DMA-BUF encoder %dx%d@60 %dkbps, complete frames\n",width,height,kbps);
+    printf("video: %s, Wave5 VBV 17ms\n", refresh ? "intra refresh 17 pictures, on-demand IDR" : "periodic IDR fallback (no intra refresh control)");
     return 0;
 }
 void venc_start(void) {
@@ -332,7 +359,10 @@ int video_tune_pwr(void) { return -1; }   // no tune file here: the chosen TX po
 int video_tune_pathb(void) { return 1; }  // and both TX paths, as in flight
 int video_tgt_fps(void) { return fps; }
 int video_kbps(void) { return venc_kbps; }
-uint8_t video_features(void) { return radio_bw40_enabled()?KA_FEAT_MAXBW:0; }
+uint8_t video_features(void) {
+    return (radio_bw40_enabled() ? KA_FEAT_MAXBW : 0) |
+           (atomic_load(&refresh_enabled) ? KA_FEAT_INTRA_REFRESH : 0);
+}
 void set_venc_bitrate(int f,int kbps,int reason) {
     (void)f; (void)reason;
     kbps=kbps<128?128:kbps>20000?20000:kbps;

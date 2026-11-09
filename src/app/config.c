@@ -34,6 +34,9 @@ static struct { const char *key; int val; } keys[] = {
     { "rec_pack_durtion", 5 }, { "cam_2dnr_strength", 1 }, { "cam_max_iso_mode", 0 },
     { "cam_anti_flicker_en", 0 }, { "bb_power_mw", 25 }, { "sys_standby_mode", 1 },
     { "video_strategy", 0 },
+#ifdef KA_PLATFORM_AR9311
+    { "wb_lock_red", 0 }, { "wb_lock_blue", 0 },
+#endif
 };
 #define NKEYS ((int)(sizeof(keys) / sizeof(keys[0])))
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;

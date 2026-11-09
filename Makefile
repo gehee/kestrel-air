@@ -3,7 +3,7 @@
 # Select a matching cross toolchain (see README.md and docs/ar9311.md):
 #   CROSS_COMPILE  the toolchain prefix
 # make test and make clean need none of it.
-BUILDING := $(if $(MAKECMDGOALS),$(filter-out clean test test-ar9311 check-stubs need-sdk check-sdk-header,$(MAKECMDGOALS)),all)
+BUILDING := $(if $(MAKECMDGOALS),$(filter-out clean test test-ar9311 test-camera check-stubs need-sdk check-sdk-header,$(MAKECMDGOALS)),all)
 CC = $(CROSS_COMPILE)gcc
 
 SRC_DIR = src
@@ -140,3 +140,11 @@ test-ar9311:
 	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Isrc tests/platform/input.c \
 		src/backends/ar9311/platform.c -Wl,--wrap=ioctl -o .build/tests/ar9311-input
 	./.build/tests/ar9311-input
+
+# Native camera control tests have no SDK, radio or physical-device dependency.
+.PHONY: test-camera
+test-camera:
+	@mkdir -p .local/tests
+	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -DKA_PLATFORM_AR9311 -Isrc -Iprotocol tests/platform/camera.c \
+		src/app/config.c src/app/settings.c src/common/json.c src/common/file.c -pthread -o .local/tests/camera
+	./.local/tests/camera
