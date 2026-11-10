@@ -165,11 +165,14 @@ int ar9311_camera_set(unsigned id, int value) {
     if(!result) {
         cfg_set(id==2?"ev_x10":"cct",value);
         if(id==5 && value==-1) {cfg_set("wb_lock_red",red);cfg_set("wb_lock_blue",blue);}
+    }
+    pthread_mutex_unlock(&controls_lock);
+    // The flash write after: the services are free again by then.
+    if(!result) {
         result=cfg_save();
         printf("camera: applied %s=%d red=%d blue=%d persistence=%s\n",
                id==2?"ev_x10":"white_balance",value,red,blue,result?"failed":"saved");
     }
-    pthread_mutex_unlock(&controls_lock);
     return result;
 }
 static int gain(const char *key, int *out) {
@@ -233,8 +236,12 @@ static int alive_locked(void) {
     if (r != 0) { awb = 0; return -1; }
     return 0;
 }
+// The encoder's, each picture: never waits for a camera command on its way
+// to a service and back (up to 1 s each) - one under way is a service alive.
+// A command that failed closes its socket, which the next check finds.
 int ar9311_controls_alive(void) {
-    pthread_mutex_lock(&controls_lock);int r=alive_locked();pthread_mutex_unlock(&controls_lock);return r;
+    if(pthread_mutex_trylock(&controls_lock)) return 0;
+    int r=alive_locked();pthread_mutex_unlock(&controls_lock);return r;
 }
 void image_restart(int fps, int angle) { (void)fps; (void)angle; }
 // The exposure the AE service set on the sensor, in us; the rest is not read.

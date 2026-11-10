@@ -63,6 +63,7 @@ static int nstrips = 1;                  // encoders now: 1 (whole pictures), or
 // strips made there. Stock hides its seam the same way (2 x 16 rows).
 static unsigned strip_ov;
 static volatile int strips_wanted;       // asked for (KA_CMD_STRIPS), from the next channel
+static void video_strips_lapse(void);    // a link where no ground asked for them: whole pictures
 static unsigned held[BUFFERS];           // bit k: strip k's encoder has the camera buffer
 static unsigned out_strip;               // the strip taken from its encoder next
 static uint64_t out_pts;                 // ...of this picture
@@ -614,6 +615,7 @@ static int release_landed(int force) {
     return 0;
 }
 static int get_frame(uint8_t *dst,uint32_t room,vframe *out) {
+    video_strips_lapse();
     struct v4l2_plane p[PLANES]={0};
     struct v4l2_buffer b;
     // Back to the camera once every encoder has done with it - and none of
@@ -743,15 +745,57 @@ void video_enable_idr(int on) {
 }
 // KA_CMD_STRIPS (and the link going down: 0): taken at the next channel,
 // which this asks the read loop for, between pictures.
+// After a link lost, strips are the next ground's to ask for (KA_CMD_STRIPS):
+// a stock goggle cannot join them. The count is kept, so the channel every
+// link-up starts (the ground's "start the video") is in strips again, and a
+// kestrel-gnd asking the same (at an info, which says whole pictures until it
+// has) needs no other; a link where no ground asks for them goes back to
+// whole pictures 4 s on (video_strips_lapse), 8 s once a kestrel-gnd has
+// sent a command of its own (one comes in its handshake): it asks at its
+// first info after its own link-up, up to ~5 s in.
+static volatile int strips_unasked, strips_kestrel;
+static volatile uint64_t strips_lapse_at;
 void video_set_strips(int n) {
     n=n<2?1:n>STRIPS_MAX?STRIPS_MAX:n;
-    const int was=strips_wanted>1?strips_wanted:1;
+    const int was=strips_wanted>1?strips_wanted:1, again=strips_unasked;
     strips_wanted=n;
-    if(n==was) return;
+    strips_unasked=0;
+    strips_lapse_at=0;
+    // A new channel only for another count than the encoder runs.
+    const int runs=venc_running?nstrips:was;
+    if(n==runs) {
+        if(again && n>1) printf("video: strips asked for again - kept\n");
+        return;
+    }
     printf("video: %s\n",n>1?"strips asked for":"whole pictures again");
     if(venc_running) venc_recreate=1;
 }
+void video_strips_link(int up) {
+    if(!up) {
+        if(strips_wanted>1) strips_unasked=1;
+        strips_lapse_at=0;
+    } else if(strips_unasked) {
+        strips_kestrel=0;
+        strips_lapse_at=mono_us()+4000000;
+    }
+}
+void video_strips_kestrel_ground(void) {
+    if(strips_unasked && strips_lapse_at && !strips_kestrel) {
+        strips_kestrel=1;
+        strips_lapse_at+=4000000;
+    }
+}
+static void video_strips_lapse(void) {
+    if(!strips_lapse_at || mono_us()<strips_lapse_at) return;
+    strips_lapse_at=0;
+    if(!strips_unasked) return;
+    strips_unasked=0;
+    strips_wanted=1;
+    printf("video: no ground asked for strips on this link - whole pictures again\n");
+    if(venc_running && nstrips>1) venc_recreate=1;
+}
 void video_strips(int *now,int *max) {
-    *now=venc_running?nstrips:(strips_wanted>1?strips_wanted:1);
+    // Whole pictures while a new link's ground has not asked, so that it does.
+    *now=strips_unasked?1:venc_running?nstrips:(strips_wanted>1?strips_wanted:1);
     *max=STRIPS_MAX;
 }

@@ -25,6 +25,8 @@ int  video_low_delay_lines(void);        // for camera_set_low_delay_lines
 // whole pictures), taken at the next channel; how many it is in now and the
 // most this backend encodes (1: none).
 void video_set_strips(int n);
+void video_strips_link(int up);          // the link lost / found: strips the next ground's to ask for
+void video_strips_kestrel_ground(void);  // a kestrel-gnd's command came: time for its strips ask
 void video_strips(int *now, int *max);
 
 // What this air app can do (KA_FEAT_* in protocol/kestrel_air.h), announced

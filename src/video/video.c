@@ -509,12 +509,10 @@ static void *drop_thread(void *arg) {
 
 void video_link(int up) {
     if (up) busy &= ~4;
-    else {
-        busy |= 4;
-        // Strips only for the ground that asked (KA_CMD_STRIPS): whatever
-        // ground the link finds next asks again.
-        video_set_strips(0);
-    }
+    else busy |= 4;
+    // Strips only for the ground that asked (KA_CMD_STRIPS): whatever ground
+    // the link finds next asks again (video_strips_link).
+    video_strips_link(up);
 }
 
 int video_start(void) {

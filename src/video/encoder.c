@@ -224,6 +224,8 @@ void tune_poll(void) {
 int video_low_delay_lines(void) { return ir_rows() > 0 ? 128 : 64; }
 // No strips on the HiSilicon encoder: whole pictures, in slices.
 void video_set_strips(int n) { (void)n; }
+void video_strips_link(int up) { (void)up; }
+void video_strips_kestrel_ground(void) { }
 void video_strips(int *now, int *max) { *now = *max = 1; }
 int lat_info(void) { static int v = -1; if (v < 0) v = env_int("KA_LATINFO", 1) != 0; return v; }
 

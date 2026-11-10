@@ -223,6 +223,10 @@ void dispatch(const uint8_t *p, int len) {
         fprintf(stderr,"camera: unsupported native command 0x%02x\n",id);return;
     }
 #endif
+    // A kestrel-gnd's own command (it sends one in every link-up's handshake):
+    // the ground on this link may ask for strips again, later than a stock one
+    // would have shown itself.
+    if (id >= KA_CMD_MAX_KBPS && id <= KA_CMD_STRIPS) video_strips_kestrel_ground();
     switch (id) {
     case 0x01: if (len < 5) { puts("ground: argument missing"); break; }
                cfg_set("scenes", v); cfg_save(); image_set_scene(v); break;
