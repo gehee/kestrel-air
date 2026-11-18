@@ -374,6 +374,9 @@ int camera_has_864p120(void) {
 // (os02k10_144fps). The CV2004 has none: at its fixed row time a 144 fps
 // frame holds ~780 rows, and a window must end before the frame does - a
 // 720-row one would sit well above the centre.
+// Ours: 720p90 - these sensors run a 720p request at 100 fps (app_ch0_remap).
+int camera_has_720p90(void) { return 0; }
+
 int camera_has_864p144(void) {
     static int known[] = { -1, -1 };
     const int i = (int)(sns - sensors);

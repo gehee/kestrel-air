@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "app/app.h"
+#include "platform/platform.h"
 #include "unit/model.h"
 #include "app/config.h"
 #include "app/state.h"
@@ -58,16 +59,21 @@ static void *apply_thread(void *arg) {
     uint32_t t0 = mono_ms32();
     printf("ground: init cfg, start, t1=%u, bb: old=[%d,%d,%d], new=[%d,%d,%d]\n", t0,
            cfg_get("ch0_width", 0), cfg_get("ch0_height", 0), cfg_get("ch0_fps", 0), w0, h0, s[0x15]);
-    // A new camera size or rate restarts the whole pipeline first.
-    if (w0 != cfg_get("ch0_width", 0) || h0 != cfg_get("ch0_height", 0) || s[0x15] != cfg_get("ch0_fps", 0)) {
-        int w = w0, h = h0, f = s[0x15];
-        app_ch0_remap(&w, &h, &f);
+    // Stored and reported: the request, or on a backend with fixed modes the
+    // one that runs (the P1: 1280x720@120 runs, and is told, as @90), as
+    // app_run stores it. A new camera size or rate restarts the whole
+    // pipeline first.
+    int w = w0, h = h0, f = s[0x15];
+    app_ch0_remap(&w, &h, &f);
+    const int fixed = platform_fixed_format();
+    const int sw = fixed ? w : w0, sh = fixed ? h : h0, sf = fixed ? f : s[0x15];
+    if (sw != cfg_get("ch0_width", 0) || sh != cfg_get("ch0_height", 0) || sf != cfg_get("ch0_fps", 0)) {
         video_send_stop();
         app_set_sensor_res(w, h, f, cfg_get("angle", 0));
     }
-    cfg_set("ch0_width", w0);
-    cfg_set("ch0_height", h0);
-    cfg_set("ch0_fps", s[0x15]);
+    cfg_set("ch0_width", sw);
+    cfg_set("ch0_height", sh);
+    cfg_set("ch0_fps", sf);
     cfg_set("ch0_focus_en", s[0x16]);
     cfg_set("ch1_width", w1);
     cfg_set("ch1_height", h1);
@@ -185,12 +191,15 @@ static void set_chn_res(int chn, int w, int h, int fps) {
     printf("ground: output chn %d, %dx%d@%d, t=%u\n", chn, w, h, fps, mono_ms32());
     if (chn == 0) {
         if (w > 1920) { w = 1920; h = 1080; fps = 60; }     // the CV2004 is 1080p at most
+        int rw = w, rh = h, rf = fps;
+        app_ch0_remap(&rw, &rh, &rf);
+        // The mode that runs, on a backend with fixed modes (apply_thread).
+        if (platform_fixed_format()) { w = rw; h = rh; fps = rf; }
         cfg_set("ch0_width", w);
         cfg_set("ch0_height", h);
         cfg_set("ch0_fps", fps);
-        app_ch0_remap(&w, &h, &fps);
         video_send_stop();
-        app_set_sensor_res(w, h, fps, cfg_get("angle", 0));
+        app_set_sensor_res(rw, rh, rf, cfg_get("angle", 0));
         video_send_start();
     } else if (chn == 1) {
         cfg_set("ch1_width", w);

@@ -173,14 +173,16 @@ static void send_info(void) {
     memcpy(out, m, (size_t)len);
     image_isp_info isp;
     image_get_info(&isp);
-    // 864p144, the 400 mW level, the live exposure cap (KA_CMD_MAX_EXP) and
+    // 720p90, 864p144, the 400 mW level, the live exposure cap (KA_CMD_MAX_EXP) and
     // strips have no feature bit (the header's byte is full): said here.
     // cam_ctrl=: the camera settings it applies, where not all of them (the
     // P1); a receiver offers only those (wb: kelvin presets, wb_lock: Lock
     // current). strips=: where the encoder has them, how many a picture is in
-    // now and the most. run=: new at each start, so the ground sends its
-    // settings again.
-    const char *cam = image_settings();
+    // now and the most. modes=: the live view's requests it runs, where not
+    // the stock four and its 864p ones (the P1: 1080p60, and 720p60 and 720p90
+    // where its sensor driver has them); a goggle's Video Mode offers only
+    // those. run=: new at each start, so the ground sends its settings again.
+    const char *cam = image_settings(), *modes = platform_modes();
     static unsigned run;
     if (!run) run = ((unsigned)mono_us() ^ ((unsigned)getpid() << 16)) | 1u;
     int strips_now, strips_max;
@@ -188,11 +190,13 @@ static void send_info(void) {
     char strips[24] = "";
     if (strips_max > 1) snprintf(strips, sizeof(strips), "strips=%d/%d\n", strips_now, strips_max);
     const int n = len + snprintf(out + len, sizeof(out) - (size_t)len,
-                                 "readout=%u\nexposure=%u\n%s%s%s%s%s%srun=%08x\npwr400=1\n",
+                                 "readout=%u\nexposure=%u\n%s%s%s%s%s%s%s%s%s%srun=%08x\npwr400=1\n",
                                  camera_readout_us(), (unsigned)isp.exp_time_us,
+                                 camera_has_720p90() ? "720p90=1\n" : "",
                                  camera_has_864p144() ? "864p144=1\n" : "",
                                  image_max_exposure_live() ? "maxexp=1\n" : "",
-                                 cam ? "cam_ctrl=" : "", cam ? cam : "", cam ? "\n" : "", strips, run);
+                                 cam ? "cam_ctrl=" : "", cam ? cam : "", cam ? "\n" : "",
+                                 modes ? "modes=" : "", modes ? modes : "", modes ? "\n" : "", strips, run);
     ground_send((const uint8_t *)out, n < (int)sizeof(out) ? n : (int)sizeof(out) - 1);
 }
 

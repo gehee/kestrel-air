@@ -41,11 +41,17 @@
 // firmware under it, APP_VERSION), board (stock's board type), model, sensor,
 // hw (the board-ID version, as in the version message), readout (us: the
 // sensor's readout of the picture's rows in the mode running now), exposure
-// (us: each row's, as AE has it now), 864p144=1 (it has that mode), pwr400=1
+// (us: each row's, as AE has it now), 864p144=1 (it has that mode), 720p90=1
+// (it has 1280x720@90; a 1280x720@120 request runs it too), pwr400=1
 // (TX power takes 400 mW and its AUTO, 401), strips=N/M (it encodes up to M
-// strips, N now: KA_CMD_STRIPS), run (a number new each time kestrel-air
-// starts: a ground sends its settings again when it changes). A key may be
-// missing; a ground that does not know one skips it.
+// strips, N now: KA_CMD_STRIPS), cam_ctrl (the camera settings it applies,
+// where not all: rotate,scene,ev,wb,wb_lock,sat,contrast,sharpness,3dnr,focus),
+// modes (the live view's sizes and rates it runs, as SET_CHN_RES asks for them:
+// "WxH@fps" comma-separated, where not the stock four - 1280x720 and 1920x1080
+// at 60 and 120 - and the 864p ones its features say; a ground offers only
+// those, and asks for one of them in place of another), run (a number new
+// each time kestrel-air starts: a ground sends its settings again when it
+// changes). A key may be missing; a ground that does not know one skips it.
 #define KA_MSG_INFO 0x50
 // The radio's TDD frame on the radio clock, once a second while known
 // (radio/frameclock.c): u8 a generation (new each time the frame's edges are

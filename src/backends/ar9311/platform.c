@@ -1,5 +1,6 @@
 // P1 wiring belongs to Linux's device tree, not HiSilicon MMIO or GPIO numbers.
 #include "platform/platform.h"
+#include "camera/pipeline.h"
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,9 +14,24 @@
 
 void platform_sensor_boot(void) { /* Clock/reset owned by the sensor driver. */ }
 void platform_record_init(void) { /* Storage is mounted by the OS. */ }
-void platform_format(int *w, int *h, int *fps) { *w = 1920; *h = 1080; *fps = 60; }
+// The SC231AI's modes (fpvOS sc231ai): 1080p at 60, and its centre 720 rows at
+// 90 or 60, of which the encoder codes the centre 1280 columns. A 720p request
+// runs 720p: at 90 above 60 fps (90, or a goggle's "720p100", 120 on the wire:
+// its lines take 90 at most, 2026-11-17), else at 60, where the driver has them
+// (camera_has_720p90). Anything else runs 1080p60, the mode the AE and ISP
+// tuning were validated in.
+void platform_format(int *w, int *h, int *fps) {
+    if (*w == 1280 && *h == 720 && camera_has_720p90()) { *fps = *fps > 60 ? 90 : 60; return; }
+    *w = 1920; *h = 1080; *fps = 60;
+}
 int platform_fixed_format(void) { return 1; }
-int platform_sensor_fps(int fps) { (void)fps; return 60; }
+int platform_sensor_fps(int fps) { return fps == 90 ? 90 : 60; }
+// The modes it runs, as a goggle asks for them: 1080p60, and with fpvOS
+// sc231ai's 720p modes 720p60 and 720p90. Not 1280x720@120 (the Ascents'
+// "720p100"), which it runs at 90 only: a goggle offers no other.
+const char *platform_modes(void) {
+    return camera_has_720p90() ? "1920x1080@60,1280x720@60,1280x720@90" : "1920x1080@60";
+}
 // The flight controller's UART: stock's ttyS1 (serial@1504000), which fpvOS's
 // device tree names serial1. None where the kernel has no such port (an image
 // before it: one 8250 port), since fc_start() waits for the port to open.

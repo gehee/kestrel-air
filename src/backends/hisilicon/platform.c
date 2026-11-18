@@ -44,6 +44,9 @@ void platform_format(int *w, int *h, int *fps) {
 
 int platform_fixed_format(void) { return 0; }
 
+// The stock four and the 864p ones KA_FEAT_864P120 and 864p144=1 say.
+const char *platform_modes(void) { return NULL; }
+
 int platform_sensor_fps(int fps) { return fps == 60 ? 60 : fps == 50 ? 50 : fps == 120 ? 120 : fps == 144 ? 144 : 100; }
 
 int platform_cpu_temp_x100(void) {

@@ -56,6 +56,10 @@ struct strip {
 };
 static struct strip strip[STRIPS_MAX] = {{.fd = -1}, {.fd = -1}, {.fd = -1}, {.fd = -1}};
 static int nstrips = 1;                  // encoders now: 1 (whole pictures), or 2-4 strips
+// The columns coded, from a wider capture: the P1's 720p rows are 1920 wide
+// (fpvOS sc231ai), of which its centre 1280 are the picture. crop_x: the
+// luma bytes from a line's start (half that in chroma), a 64-byte multiple.
+static unsigned enc_w, crop_x;
 // Each strip codes strip_ov rows past each of its joins (KA_STRIP_OVERLAP: 16
 // by default, 0-32 in eights), which the ground cuts off again (header byte
 // KA_H_STRIP_OV): no join is at the edge a strip was coded to, where nothing
@@ -294,14 +298,15 @@ static void encoder_create(int k, const char *path, const struct v4l2_format *cf
 	if (s->fd < 0) fail("open encoder");
 	struct v4l2_format ef = *cf;
 	ef.type = OUTPUT;
+	ef.fmt.pix_mp.width = enc_w;
 	ef.fmt.pix_mp.height = s->h;
 	for (unsigned int j = 0; j < PLANES; j++)
-		ef.fmt.pix_mp.plane_fmt[j].sizeimage = nstrips == 1 ? camera[0][j].size :
+		ef.fmt.pix_mp.plane_fmt[j].sizeimage = nstrips == 1 && !crop_x ? camera[0][j].size :
 			(j ? (s->h + 1) / 2 : s->h) * c_stride[j];
 	checked(s->fd, VIDIOC_S_FMT, &ef, "encoder source S_FMT");
 	for (unsigned int j = 0; j < PLANES; j++) {
 		// What it reads from its rows on must be in the camera's buffer.
-		const unsigned off = (j ? s->y / 2 : s->y) * c_stride[j];
+		const unsigned off = (j ? s->y / 2 : s->y) * c_stride[j] + (j ? crop_x / 2 : crop_x);
 		if (ef.fmt.pix_mp.plane_fmt[j].bytesperline != f->plane_fmt[j].bytesperline ||
 		    off + ef.fmt.pix_mp.plane_fmt[j].sizeimage > camera[0][j].size) {
 			fprintf(stderr, "encoder substituted stride or requires a larger source buffer\n");
@@ -310,17 +315,17 @@ static void encoder_create(int k, const char *path, const struct v4l2_format *cf
 	}
 	ef = (struct v4l2_format) { .type = CAPTURE };
 	ef.fmt.pix_mp = (struct v4l2_pix_format_mplane) {
-		.width = f->width, .height = s->h, .pixelformat = V4L2_PIX_FMT_HEVC,
+		.width = enc_w, .height = s->h, .pixelformat = V4L2_PIX_FMT_HEVC,
 		.field = V4L2_FIELD_NONE, .num_planes = 1,
 	};
 	checked(s->fd, VIDIOC_S_FMT, &ef, "encoder HEVC S_FMT");
-	if (ef.fmt.pix_mp.width != f->width || ef.fmt.pix_mp.height != s->h ||
+	if (ef.fmt.pix_mp.width != enc_w || ef.fmt.pix_mp.height != s->h ||
 	    ef.fmt.pix_mp.pixelformat != V4L2_PIX_FMT_HEVC || ef.fmt.pix_mp.num_planes != 1) {
 		fprintf(stderr, "encoder substituted coded format\n");
 		errno = EINVAL; fail("unsupported camera/encoder format");
 	}
 	struct v4l2_streamparm sp = { .type = OUTPUT };
-	sp.parm.output.timeperframe = (struct v4l2_fract) {1, 60};
+	sp.parm.output.timeperframe = (struct v4l2_fract) {1, (unsigned)src_fps};
 	checked(s->fd, VIDIOC_S_PARM, &sp, "encoder frame rate");
 	control(s->fd, V4L2_CID_MPEG_VIDEO_HEVC_LEVEL, V4L2_MPEG_VIDEO_HEVC_LEVEL_4_1);
 	control(s->fd, V4L2_CID_MPEG_VIDEO_BITRATE, kbps * 1000);
@@ -330,7 +335,7 @@ static void encoder_create(int k, const char *path, const struct v4l2_format *cf
 	int ir_period = (int)(s->h + 63) / 64;
 	if (ir_on && nstrips > 1 && ir_columns) {
 		if (set_control(s->fd, V4L2_CID_WAVE5_INTRA_REFRESH_COLUMNS, 1) == 0) {
-			ir_period = (int)(f->width + 63) / 64;
+			ir_period = (int)(enc_w + 63) / 64;
 		} else {
 			if (k) fail("intra refresh by columns on a strip");
 			perror("intra refresh by columns (a kernel without fpvOS's Wave5 patch 0017), strips by rows");
@@ -342,7 +347,7 @@ static void encoder_create(int k, const char *path, const struct v4l2_format *cf
 		perror("intra refresh (a kernel without fpvOS's Wave5 patch), periodic keyframes");
 		ir_kernel = ir_on = 0;
 	}
-	control(s->fd, V4L2_CID_MPEG_VIDEO_GOP_SIZE, ir_on ? 0 : 60);
+	control(s->fd, V4L2_CID_MPEG_VIDEO_GOP_SIZE, ir_on ? 0 : src_fps);
 	if (ir_on) control(s->fd, V4L2_CID_MPEG_VIDEO_HEVC_CONST_INTRA_PRED, 1);
 	control(s->fd, V4L2_CID_MPEG_VIDEO_FRAME_RC_ENABLE, 1);
 	// Rate control by blocks over a 50 ms buffer: every picture near its share.
@@ -362,7 +367,7 @@ static void encoder_create(int k, const char *path, const struct v4l2_format *cf
 		const int rows = (int)(f->height + 63) / 64, per = (rows + (slices > 1 ? slices : 1) - 1) / (slices > 1 ? slices : 1);
 		if (slices > 1) {
 			control(s->fd, V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MODE, V4L2_MPEG_VIDEO_MULTI_SLICE_MODE_MAX_MB);
-			control(s->fd, V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_MB, per * (int)((f->width + 63) / 64));
+			control(s->fd, V4L2_CID_MPEG_VIDEO_MULTI_SLICE_MAX_MB, per * (int)((enc_w + 63) / 64));
 		}
 	}
 	control(s->fd, V4L2_CID_MPEG_VIDEO_AU_DELIMITER, 0);
@@ -401,6 +406,12 @@ int venc_create(int kbps) {
 		errno = EINVAL; fail("unsupported camera/encoder format");
 	}
 	for (unsigned int j = 0; j < PLANES; j++) c_stride[j] = f->plane_fmt[j].bytesperline;
+	// The picture's columns: all of the capture's, or its centre `width`.
+	if (f->height != (unsigned)height || f->width < (unsigned)width || (unsigned)width % 16) {
+		errno = EINVAL; fail("capture dimensions");
+	}
+	enc_w = (unsigned)width;
+	crop_x = (f->width - enc_w) / 2 & ~63u;
 	// The strips: the picture's CTU rows (64) shared out, the top ones a row
 	// more where they do not divide - 5, 4, 4 and 4 rows at 1080p (the last
 	// 248 lines), 6, 6 and 5, or 9 and 8 - each joined to the next on a CTU
@@ -426,7 +437,8 @@ int venc_create(int kbps) {
 		unsigned depth = 0;
 		FILE *d = fopen("/sys/module/ar_cvisp/parameters/depth", "r");
 		if (d) { if (fscanf(d, "%u", &depth) != 1) depth = 0; fclose(d); }
-		early_row = depth == 1 ? env_int("KA_EARLY_ROW", 768) : 0;
+		// Row 768 of 1080, as far down the picture at another height (512 of 720).
+		early_row = depth == 1 ? env_int("KA_EARLY_ROW", (int)f->height * 64 / 90) : 0;
 		if (early_row < 0 || early_row >= (int)f->height) early_row = 0;
 		uint32_t line = 0, rows = 0, exp = 0;
 		if (early_row && ar9311_sensor_timing(&line, &rows, &exp)) early_row = 0;
@@ -463,23 +475,20 @@ int venc_create(int kbps) {
 	}
 	for (int k = 0; k < nstrips; k++) encoder_create(k, encoder_path, &cf, strip_kbps(kbps, k));
 
-    if (f->width != (unsigned)width || f->height != (unsigned)height) {
-        errno=EINVAL; fail("capture dimensions");
-    }
     capture_lag_us=ar9311_capture_lag_us();
-    venc_kbps=kbps; venc_fps=60;
+    venc_kbps=kbps; venc_fps=src_fps;
     submitted=received=returned=0;
     out_strip=0;
     early_n=early_past=0; memset(early_wait_us,0,sizeof(early_wait_us));   // this channel's own
     enabled=1; warmup=8; progress=mono_us();
     if (nstrips == 1)
-        printf("video: AR9311 DMA-BUF encoder %dx%d@60 %dkbps, %d slices a picture, %s, capture stamps %u us late\n",
-               width,height,kbps,slices>1?slices:1,ir_on?"intra refresh by CTU rows":"periodic keyframes",capture_lag_us);
+        printf("video: AR9311 DMA-BUF encoder %dx%d@%d %dkbps, %d slices a picture, %s, capture stamps %u us late\n",
+               width,height,src_fps,kbps,slices>1?slices:1,ir_on?"intra refresh by CTU rows":"periodic keyframes",capture_lag_us);
     else {
         char rows[64]; int at=0;
         for (int k=0;k<nstrips;k++) at+=snprintf(rows+at,sizeof(rows)-(size_t)at,"%s%u",k?"/":"",strip[k].h);
-        printf("video: AR9311 DMA-BUF encoders %dx%d@60 %dkbps in %d strips of %s rows (%u past each join), %s, capture stamps %u us late\n",
-               width,height,kbps,nstrips,rows,strip_ov,
+        printf("video: AR9311 DMA-BUF encoders %dx%d@%d %dkbps in %d strips of %s rows (%u past each join), %s, capture stamps %u us late\n",
+               width,height,src_fps,kbps,nstrips,rows,strip_ov,
                !ir_on?"periodic keyframes":ir_columns?"intra refresh by CTU columns":"intra refresh by CTU rows",capture_lag_us);
     }
     return 0;
@@ -578,6 +587,10 @@ static int submit_camera(unsigned index, struct timeval stamp, int k) {
         p[j].length=p[j].bytesused=camera[index][j].size;
         if(nstrips>1) {
             p[j].data_offset=(j?s->y/2:s->y)*c_stride[j];
+            p[j].bytesused=p[j].data_offset+(j?(s->h+1)/2:s->h)*c_stride[j];
+        }
+        if(crop_x) {
+            p[j].data_offset+=j?crop_x/2:crop_x;
             p[j].bytesused=p[j].data_offset+(j?(s->h+1)/2:s->h)*c_stride[j];
         }
     }

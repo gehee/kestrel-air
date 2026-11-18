@@ -18,6 +18,7 @@ int  camera_sensor_angle_tuning(void);        // the tuning bins' names carry th
 // whether the camera does 864p120 (its 1536x864 window at 120 fps).
 void camera_capture_size(int *w, int *h);
 int  camera_has_864p120(void);
+int  camera_has_720p90(void);                 // ours: 720p at 90 fps (the P1's SC231AI rows), not 100
 int  camera_has_864p144(void);                // ours: and 864p144 (the OS02K10's 1536x864 window at 144 fps)
 int  camera_sensor_probe(void);               // ours: find the sensor before the first pipeline
 uint32_t camera_readout_us(void);             // ours: the sensor's readout of the picture's rows, us

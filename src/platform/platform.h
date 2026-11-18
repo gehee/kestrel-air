@@ -4,6 +4,11 @@ void platform_sensor_boot(void);
 void platform_record_init(void);
 void platform_format(int *w, int *h, int *fps);
 int platform_fixed_format(void); // 1: platform_format gives one mode, whatever was asked
+// The live view's requests it runs (SET_CHN_RES, as a goggle sends them), "WxH@fps"
+// comma-separated, for its info's modes=: where it runs other than the stock
+// four (720p and 1080p at 60 and 120) and the 864p ones its features say. NULL
+// there: a goggle offers those.
+const char *platform_modes(void);
 int platform_sensor_fps(int fps);
 const char *platform_fc_device(void);
 int platform_cpu_temp_x100(void); // INT_MIN when unavailable

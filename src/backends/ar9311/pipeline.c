@@ -2,14 +2,18 @@
 // loads those drivers; this backend verifies the supported camera before use.
 #include "camera/pipeline.h"
 #include "backends/ar9311/camera.h"
+#include "camera/image.h"
 #include <dirent.h>
 #include <fcntl.h>
+#include <stdlib.h>
 #include <linux/v4l2-subdev.h>
 #include <linux/videodev2.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+
+static int capture_w = 1920, capture_h = 1080;   // the mode the pipeline was made for
 
 int ar9311_node(const char *name, char *path, size_t size) {
     DIR *d = opendir("/sys/class/video4linux");
@@ -35,10 +39,40 @@ int ar9311_node(const char *name, char *path, size_t size) {
     return n == 1 ? 0 : -1;
 }
 int camera_sensor_probe(void) { char p[128]; return ar9311_node("sc231ai", p, sizeof(p)); }
+
+// The sensor's mode is chosen when its driver loads (fpvOS sc231ai's mode
+// parameter): the capture chain behind it is brought up once and never torn
+// down, so another mode is the camera drivers reloaded with it
+// (ar9311-camera-load), with nothing of them open - the encoder stopped and
+// the AE and AWB services paused, as app_set_sensor_res does first. The
+// ISP's image settings are module and debugfs state: set again after.
+static char loaded_mode[16];
+static int sensor_mode(char *mode, size_t size) {
+    FILE *f = fopen("/sys/module/sc231ai/parameters/mode", "r");
+    int ok = f && fgets(mode, (int)size, f);
+    if (f) fclose(f);
+    if (ok) mode[strcspn(mode, "\r\n")] = 0;
+    return ok ? 0 : -1;
+}
 int camera_pipeline_create(char sensor, short w, short h, char rate, int slices) {
-    char p[128];
+    char p[128], want[16], cmd[64];
     (void)sensor; (void)slices;
-    if (w != 1920 || h != 1080 || rate != 60) return -1;
+    if (!((w == 1920 && h == 1080 && rate == 60) ||
+          (w == 1280 && h == 720 && (rate == 90 || rate == 60)))) return -1;
+    snprintf(want, sizeof(want), "%dp%d", h, rate);
+    if (sensor_mode(loaded_mode, sizeof(loaded_mode))) loaded_mode[0] = 0;
+    if (strcmp(loaded_mode, want)) {
+        printf("camera: sensor mode %s -> %s, reloading the camera drivers\n",
+               loaded_mode[0] ? loaded_mode : "?", want);
+        snprintf(cmd, sizeof(cmd), "ar9311-camera-load %s", want);
+        if (system(cmd) != 0 || sensor_mode(loaded_mode, sizeof(loaded_mode)) ||
+            strcmp(loaded_mode, want)) {
+            fprintf(stderr, "camera: could not load the sensor in %s\n", want);
+            return -1;
+        }
+        image_apply_all();
+    }
+    capture_w = w; capture_h = h;
     return camera_sensor_probe() || ar9311_node("ar-cvisp", p, sizeof(p)) ||
         ar9311_node("C&M Wave5 VPU encoder", p, sizeof(p)) ? -1 : 0;
 }
@@ -67,9 +101,19 @@ void camera_set_low_delay_lines(int lines) { (void)lines; }
 const char *camera_sensor_name(void) { return "sc231ai"; }
 int camera_sensor_type(void) { return 0; } // No verified stock protocol sensor ID
 int camera_sensor_angle_tuning(void) { return 0; }
-void camera_capture_size(int *w, int *h) { *w = 1920; *h = 1080; }
+void camera_capture_size(int *w, int *h) { *w = capture_w; *h = capture_h; }
 int camera_has_864p120(void) { return 0; }
 int camera_has_864p144(void) { return 0; }
+// 720p90: fpvOS sc231ai's 720 rows at 90 fps, where the driver has them (its
+// mode parameter comes with them). The goggle then names its 1280x720@120
+// request 720p90, the rate it runs at, not the Ascent's 720p100. Once seen,
+// kept: another mode unloads the driver for a moment (ar9311-camera-load),
+// and the info sent then would take the 720p modes off the goggle's menu.
+int camera_has_720p90(void) {
+    static int seen;
+    if (!seen) seen = access("/sys/module/sc231ai/parameters/mode", F_OK) == 0;
+    return seen;
+}
 
 // A line is the active width and the horizontal blanking at the pixel rate
 // (SC231AI: 2240 / 151.2 MHz, 14.8 us), all read from the sensor's subdevice

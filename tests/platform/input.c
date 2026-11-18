@@ -4,7 +4,9 @@
 #include <stdarg.h>
 #include <string.h>
 #include "platform/platform.h"
+#include "camera/pipeline.h"
 static int pressed, failed;
+int camera_has_720p90(void) { return 0; }   // platform_format's: the camera is not linked
 int __wrap_ioctl(int fd, unsigned long request, ...) {
     assert(fd == 42);
     assert(request == EVIOCGKEY((KEY_MAX + 8) / 8));
