@@ -106,4 +106,7 @@ void platform_led_set(int red, int on) {
 }
 
 int platform_radio_board_controls(void) { return 1; }
-int platform_frameclock(void) { return 1; } // camera frame lock runs on it
+// The radio clock off the radio's frame (radio/frameclock.c): the video's
+// radio-clock stamps to some 10-20 us, for the goggle's latency figures and
+// its screen sync. Nothing locks the camera to the frame.
+int platform_frameclock(void) { return 1; }

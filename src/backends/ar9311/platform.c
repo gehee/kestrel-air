@@ -122,12 +122,16 @@ void platform_led_set(int red, int on) {
 }
 
 int platform_radio_board_controls(void) { return 0; }
-// The radio clock off the radio's frame (radio/frameclock.c), KA_FRAMECLOCK=1.
-// Off by default: on the P1's SDIO radio it found no frame (2026-11-04: "no
-// frame found", 300 reads a try, again and again), so the stamps stay the
-// radio clock's own.
+// The radio clock off the radio's frame (radio/frameclock.c); KA_FRAMECLOCK=0
+// turns it off. With Open8030 the P1's radio is found and followed (2026-11-18:
+// the frame in 0.4-0.7 s, its edge within some 35 us, never lost; 2026-11-04's
+// slow reads found none). Its frame interrupts are read only from fast replies
+// (frameclock.c FAST_RTT_US: over SDIO here half take 0.75 ms or more, which
+// put the IRQ up to a millisecond late and restarted the clock every few
+// seconds): then IRQ 5 sits +217 to +228 us from the edge, one generation in
+// five minutes.
 int platform_frameclock(void) {
     static int v = -1;
-    if (v < 0) { const char *e = getenv("KA_FRAMECLOCK"); v = e && *e && atoi(e) == 1; }
+    if (v < 0) { const char *e = getenv("KA_FRAMECLOCK"); v = !(e && *e && atoi(e) == 0); }
     return v;
 }

@@ -39,6 +39,7 @@
 #include "ground/ground.h"
 #include "common/clock.h"
 #include "kestrel_air.h"
+#include "app/settings.h"
 
 #include <math.h>
 #include <pthread.h>
@@ -56,6 +57,10 @@
 #define HOLD_US   7000000    // the last count used on while the frame is found again
 #define CARRY_US 60000000    // ... and carried onto a new frame within this
 #define DRIFT_MAX 5000.0     // while within this of the ms readings, us
+#define FAST_RTT_US 600      // a frame-interrupt read used: back within this, us
+#define FAST_TRIES  4        // reads a step to get one
+#define STAMP_HOLD_US 2000000 // the stamps go on through steps without one, us
+#define STAMP_AGREE_US 150.0  // ... and after a longer gap, while one agrees within this
 
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 static int st_valid;
@@ -129,7 +134,18 @@ static void *fc_thread(void *arg) {
     // AP clock unwrapped (us, 32 bits a reading), where its IRQ 5 falls from
     // our edge on average, and a pause after a radio that did not answer.
     const int o8030 = r_is_open8030();
-    int stamped_before = 0, info_fails = 0;
+    // KA_FRAMECLOCK_TRACE=file: each frame-interrupt read, a line: our clock
+    // when it went (us), its round trip (us), the radio's time since its IRQ 5
+    // (us), that IRQ's offset from our edge (us), the radio clock at it (low
+    // 32 bits), and the radio's frames, taken, rejected, residual and flags;
+    // or "fail rc" / the round trip of a reply too slow to use.
+    FILE *trace = NULL;
+    if (o8030 && env_str("KA_FRAMECLOCK_TRACE")) {
+        trace = fopen(env_str("KA_FRAMECLOCK_TRACE"), "w");
+        if (trace) setvbuf(trace, NULL, _IOLBF, 0);
+        else perror("frameclock: KA_FRAMECLOCK_TRACE");
+    }
+    int info_fails = 0;
     uint64_t s64 = 0, info_quiet_until = 0;
     int s_known = 0;
     double g_avg = 0;
@@ -182,6 +198,10 @@ static void *fc_thread(void *arg) {
         double Tt = round(Tm / FE_TICK_US) * FE_TICK_US, phi = 0;
         int64_t m = 0;
         int aligned = 0, onto = 0, good = 0, misses = 0, nap = 0, api = 0;
+        // The last step a frame interrupt stamped the clock, and the reads
+        // (and the fast ones) of the frame-interrupt requests since the log.
+        uint64_t stamp_at = 0;
+        unsigned info_reads = 0, info_fast = 0;
         if (carried && fabs(Tm - Tm_last) < 0.5) {
             const double k = (E - E_last) / Tm_last;
             if (fabs(k - round(k)) < 0.05) {                 // the same edges as before
@@ -278,14 +298,34 @@ static void *fc_thread(void *arg) {
                        Tt_last, Tt, phi);
             }
             // Open8030: the radio's clock at its latest IRQ 5, on the edge
-            // nearest it.
-            int stamped = 0;
+            // nearest it. Only from a reply back within FAST_RTT_US: when the
+            // IRQ was on our clock is the reply's middle less the radio's time
+            // since it, and a slow reply (the P1's SDIO: half of them over
+            // 0.75 ms, some 5 ms) puts it up to a millisecond late - fast
+            // ones agree within some 20 us of the radio clock (2026-11-18).
+            // Up to FAST_TRIES reads a step for one.
             if (o8030 && t >= info_quiet_until) {
                 r_frame_info_t si;
-                const uint64_t r0 = mono_us();
-                const int rc = r_frame_info(&si);
-                const uint64_t r1 = mono_us();
-                if (rc == 0 && (si.flags & 2) && si.frame_ticks && r1 - r0 < 3000) {
+                uint64_t r0 = 0, r1 = 0;
+                int rc = -1;
+                for (int tries = 0; tries < FAST_TRIES; tries++) {
+                    r0 = mono_us();
+                    rc = r_frame_info(&si);
+                    r1 = mono_us();
+                    info_reads++;
+                    if (trace && rc == 0 && si.frame_ticks) {
+                        const double i5 = (double)(r0 + r1) / 2 - (double)si.since_us;
+                        fprintf(trace, "%llu %u %u %.1f %u %u %u %u %d %u\n", (unsigned long long)r0,
+                                (unsigned)(r1 - r0), si.since_us, i5 - (E + round((i5 - E) / Tm) * Tm),
+                                si.ap_us_lo, si.frames, si.taken, si.rejected, si.residual_us, si.flags);
+                    } else if (trace) {
+                        fprintf(trace, "%llu %u fail %d\n", (unsigned long long)r0, (unsigned)(r1 - r0), rc);
+                    }
+                    if (rc != 0) break;
+                    if (r1 - r0 < FAST_RTT_US) { info_fast++; break; }
+                }
+                const int recent = stamp_at && t - stamp_at < STAMP_HOLD_US;
+                if (rc == 0 && (si.flags & 2) && si.frame_ticks && r1 - r0 < FAST_RTT_US) {
                     info_fails = 0;
                     const double irq5 = (double)(r0 + r1) / 2 - (double)si.since_us;
                     const double kk = round((irq5 - E) / Tm);
@@ -297,10 +337,15 @@ static void *fc_thread(void *arg) {
                         else s64 += (uint64_t)(int64_t)(int32_t)(si.ap_us_lo - (uint32_t)s64);
                         s_known = 1;
                         const double vE = (double)s64 - kk * sTt;   // at our edge E
+                        // What the count says there: after a gap without a fast
+                        // reply (they come in bursts over the P1's SDIO), a
+                        // stamp that agrees goes on with it, no new generation.
+                        const double was = (double)m * Tt + phi;
+                        const int agrees = aligned && fabs(vE - was) < STAMP_AGREE_US;
                         m = (int64_t)floor(vE / sTt);
                         Tt = sTt;
                         phi = vE - (double)m * Tt;
-                        if (!aligned || !stamped_before) {
+                        if (!aligned || (!recent && !agrees)) {
                             gen++;
                             last_msg = 0;
                             printf("frameclock: the radio clock from the radio's frame interrupts (frame %.2f us, IRQ 5 %+.0f us from our edge)\n",
@@ -309,15 +354,14 @@ static void *fc_thread(void *arg) {
                         aligned = 1;
                         onto = 0;
                         drift = 0;
-                        stamped = 1;
-                        g_avg = stamped_before ? g_avg + (g - g_avg) / 16 : g;
+                        g_avg = recent ? g_avg + (g - g_avg) / 16 : g;
+                        stamp_at = t;
                     }
                 } else if (rc != 0 && ++info_fails >= 3) {
                     info_fails = 0;
                     info_quiet_until = t + 30000000;
                 }
             }
-            stamped_before = stamped;
             // Which edge is which, from the ms readings: once. Later, only how
             // far those have drifted from the count (logged).
             if (good >= 6 && nap >= 20 && (!aligned || t - last_check >= 30000000)) {
@@ -352,9 +396,13 @@ static void *fc_thread(void *arg) {
                 last_msg = t;
             }
             if (t - last_log >= 30000000) {
+                const int on_irq = stamp_at && t - stamp_at < STAMP_HOLD_US;
                 printf("frameclock: frame %.3f us of ours, edge %+.1f us (bounds %.0f apart)%s\n", Tm, s, w,
-                       stamped ? ", on the radio's frame interrupts" : aligned ? "" : ", not counted yet");
-                if (stamped) printf("frameclock: the radio's IRQ 5 %+.1f us from our edge on average\n", g_avg);
+                       on_irq ? ", on the radio's frame interrupts" : aligned ? "" : ", not counted yet");
+                if (on_irq)
+                    printf("frameclock: the radio's IRQ 5 %+.1f us from our edge on average, %u of %u reads fast enough\n",
+                           g_avg, info_fast, info_reads);
+                info_reads = info_fast = 0;
                 last_log = t;
             }
         }
