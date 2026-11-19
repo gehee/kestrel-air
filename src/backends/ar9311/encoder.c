@@ -9,6 +9,7 @@
 #include "backends/ar9311/camera.h"
 #include "app/state.h"
 #include "app/settings.h"
+#include "app/config.h"
 #include "common/clock.h"
 #include "radio/radio.h"
 #include "unit/fc.h"
@@ -277,6 +278,10 @@ static void control(int fd, unsigned int id, int value)
 // 30 columns (0.5 s); a lost picture is cleaned up after one, as by rows. A
 // kernel without the patch: strips by rows, as before.
 #define V4L2_CID_WAVE5_INTRA_REFRESH_COLUMNS (V4L2_CID_CODEC_BASE | 0x1f00)
+// fpvOS Wave5 0041: the outer quarters' QP over the centre's (Focus Mode).
+#define V4L2_CID_WAVE5_SIDE_QP (V4L2_CID_CODEC_BASE | 0x1f01)
+int ar9311_side_qp;          // the encoder has it (known once one is made)
+static int side_qp_now = -1; // what the encoders have now, -1 not set
 static int ir_on, ir_kernel = 1, ir_columns = 1;
 static int ir_wanted(void) { return env_int("KA_IR", 2) > 0; }
 
@@ -329,6 +334,10 @@ static void encoder_create(int k, const char *path, const struct v4l2_format *cf
 	sp.parm.output.timeperframe = (struct v4l2_fract) {1, (unsigned)src_fps};
 	checked(s->fd, VIDIOC_S_PARM, &sp, "encoder frame rate");
 	control(s->fd, V4L2_CID_MPEG_VIDEO_HEVC_LEVEL, V4L2_MPEG_VIDEO_HEVC_LEVEL_4_1);
+	if (!k) {
+		struct v4l2_queryctrl q = { .id = V4L2_CID_WAVE5_SIDE_QP };
+		ar9311_side_qp = ioctl(s->fd, VIDIOC_QUERYCTRL, &q) == 0;
+	}
 	control(s->fd, V4L2_CID_MPEG_VIDEO_BITRATE, kbps * 1000);
 	if (!k) ir_on = ir_wanted() && ir_kernel;
 	// The band sweeps the encoder's own CTU rows (a strip's in fewer
@@ -396,6 +405,7 @@ int venc_create(int kbps) {
     }
     if (ar9311_node("ar-cvisp",camera_path,sizeof(camera_path)) ||
         ar9311_node("C&M Wave5 VPU encoder",encoder_path,sizeof(encoder_path))) return -1;
+    side_qp_now=-1;   // the new encoders' side QP is 0: roi_update sets it again
     capture_fd=open(camera_path,O_RDWR|O_NONBLOCK|O_CLOEXEC);
     if(capture_fd<0) fail("open camera");
     kbps=kbps<128?128:kbps>40000?40000:kbps;   // the encoder's own range, as the Lite's; radio_tgt_bitrate keeps to the link and the goggle's cap
@@ -712,7 +722,28 @@ int stream_get(uint8_t *dst,uint32_t room,vframe *out,int timeout_ms) {
     return r;
 }
 void tune_poll(void) { }
-void roi_update(int on) { (void)on; }
+// Focus Mode (the goggle's ch0_focus_en: 0 Auto, 1 On, 2 Off): the picture's
+// outer quarters coded 6 QP coarser than its centre (fpvOS Wave5 0041's side
+// QP, the rate control keeping the picture's size), so the centre gets the
+// bits; in Auto with a poor link (MCS under 1), as the Lite's ROI (its roi=2,
+// video/encoder.c; KA_FOCUS_QP another offset, 1-25). New encoders start
+// without it (venc_create).
+void roi_update(int on) {
+    if (!ar9311_side_qp || !venc_running) return;
+    static int side = -1;
+    if (side < 0) { side = env_int("KA_FOCUS_QP", 6); side = side < 1 ? 1 : side > 25 ? 25 : side; }
+    const int mode = cfg_get("ch0_focus_en", 0);
+    const int want = mode == 1 || (mode == 0 && on && radio_mcs() < 1) ? side : 0;
+    if (want == side_qp_now) return;
+    for (int k = 0; k < nstrips; k++)
+        if (strip[k].fd >= 0 && set_control(strip[k].fd, V4L2_CID_WAVE5_SIDE_QP, want)) {
+            perror("video: focus (encoder side QP)");
+            return;
+        }
+    side_qp_now = want;
+    if (want) printf("video: focus on: the sides %d QP coarser\n", want);
+    else puts("video: focus off");
+}
 int video_low_delay_lines(void) { return 0; }
 // The air-side times and the radio clock at encoder out, to 1/256 ms
 // (KA_FEAT_LATINFO, KA_FEAT_APCLOCK): the capture stamps are row 0's capture

@@ -14,6 +14,7 @@ static const struct { const char *name, *def, *what; } known[] = {
     { "KA_WB_BLUE", "required on AR9311", "initial ISP blue gain (Q8)" },
     { "KA_WB_ORDER", "required on AR9311", "ISP statistics Bayer order" },
     { "KA_BOARD_TYPE", BOARD_TYPE_FILE, "stock's board type: 482 Lite, 472 Lite+; set by air/start.sh (unit/model.c)" },
+    { "KA_FOCUS_QP",   "6",            "Focus Mode on the P1: the outer quarters' QP over the centre's, 1-25 (backends/ar9311/encoder.c)" },
     { "KA_IR",         "4 / 2",        "intra refresh, CTU columns (4) or rows (2) per picture; 0: periodic keyframes (video/encoder.c)" },
     { "KA_IR_MODE",    "1",            "intra refresh by rows (0) or columns (1)" },
     { "KA_IR_QP",      "32",           "intra refresh's request_i_qp" },

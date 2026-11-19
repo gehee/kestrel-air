@@ -2,6 +2,8 @@
 #include <stddef.h>
 #include <stdint.h>
 int ar9311_node(const char *name, char *path, size_t size);
+// The encoder takes fpvOS Wave5 0041's side QP (Focus Mode): known once one is made.
+extern int ar9311_side_qp;
 int ar9311_controls_start(void);
 int ar9311_controls_alive(void);
 int ar9311_camera_set(unsigned command, int value);

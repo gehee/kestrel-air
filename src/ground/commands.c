@@ -226,9 +226,10 @@ void dispatch(const uint8_t *p, int len) {
         shared.cam_flag=1;
         return;
     }
-    // Rotate, Saturation, Sharpness, Contrast and 3D DNR go on below, as on
-    // the Lite; Scene, Focus and 2D DNR the P1 does not have.
-    if(id==0x01 || id==0x0e || id==0x1c) {
+    // Rotate, Saturation, Sharpness, Contrast, 3D DNR and Focus (roi_update
+    // takes it, where the encoder can) go on below, as on the Lite; Scene and
+    // 2D DNR the P1 does not have.
+    if(id==0x01 || id==0x1c) {
         fprintf(stderr,"camera: unsupported native command 0x%02x\n",id);return;
     }
 #endif

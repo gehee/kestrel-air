@@ -41,8 +41,12 @@ int image_max_exposure_live(void) { return 1; }
 // service's: Auto, Lock current (wb_lock) or a kelvin preset (wb), locked at
 // the tuning file's reference white points for it (wb.c); Saturation and
 // Contrast, the ISP's (fpvOS ar-isp 0009); 3D DNR and Sharpness, its de3d and
-// lnr strengths (0010).
-const char *image_settings(void) { return "rotate,ev,wb,wb_lock,sat,contrast,sharpness,3dnr"; }
+// lnr strengths (0010); Focus Mode where the encoder has fpvOS Wave5 0041's
+// side QP (ar9311_side_qp, encoder.c roi_update).
+const char *image_settings(void) {
+    return ar9311_side_qp ? "rotate,ev,wb,wb_lock,sat,contrast,sharpness,3dnr,focus"
+                          : "rotate,ev,wb,wb_lock,sat,contrast,sharpness,3dnr";
+}
 // The EV goes over the AE's control socket (ar9311_camera_set); the cap
 // through its file, read again on a SIGHUP.
 int image_set_max_exposure(unsigned us) {

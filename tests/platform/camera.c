@@ -4,6 +4,7 @@
 #include "../../src/backends/ar9311/image.c"
 int ar9311_node(const char *name,char *path,size_t size){(void)name;(void)path;(void)size;return -1;}
 int ar9311_sensor_timing(uint32_t *line,uint32_t *rows,uint32_t *exposure){(void)line;(void)rows;(void)exposure;return -1;}
+int ar9311_side_qp;
 // A tuning file with the P1's AWB reference points (tests/platform/wb.c).
 static void write_tuning(const char *path) {
     static const struct { uint32_t k; float rg, bg; } pts[8] = {
@@ -35,6 +36,11 @@ static pid_t fake(int *fd,const char *expected,const char *response) {
 }
 static void reap(pid_t p){int status;assert(waitpid(p,&status,0)==p && WIFEXITED(status) && !WEXITSTATUS(status));}
 int main(void) {
+    /* Focus Mode is listed only where the encoder has the side QP. */
+    assert(!strstr(image_settings(), "focus"));
+    ar9311_side_qp = 1;
+    assert(strstr(image_settings(), ",focus"));
+    ar9311_side_qp = 0;
     char directory[]=".local/tests/camera-XXXXXX", path[128];
     assert(mkdtemp(directory));
     snprintf(path,sizeof(path),"%s/settings.json",directory);
