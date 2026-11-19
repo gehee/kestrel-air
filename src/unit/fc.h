@@ -2,7 +2,7 @@
 #pragma once
 
 // Set before fc_start: poll the flight controller's IMU (MSP_RAW_IMU) for the ground,
-// the IMU data of a unit with none on its camera (KA_FEAT_FC_IMU).
+// the IMU data of a unit with none on its camera (KA_FEAT_FC_IMU: the Lite+, the P1).
 extern int fc_imu;
 
 int  fc_start(const char *dev);

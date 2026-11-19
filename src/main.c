@@ -30,7 +30,7 @@ static void usage(void) {
     "    --imu                     - IMU data for the ground, from where the board has it: the\n"
     "                                camera's IMU (Lite: ICM-40609-D on /dev/spidev0.0), its\n"
     "                                samples in the video as H.265 SEI messages; else the flight\n"
-    "                                controller's (Lite+: MSP_RAW_IMU, 20 a second)\n"
+    "                                controller's (Lite+, P1: MSP_RAW_IMU, 20 a second)\n"
     "    --imu-dev PATH            - --imu on another spidev node\n"
     "    --bb-verbose              - Per-stage timing and radio events in the log\n"
     "    --help                    - This text\n"

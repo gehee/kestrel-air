@@ -21,6 +21,6 @@ enum {
 typedef struct { int credit[16]; int fc_imu; } fcpoll_t;
 
 // fc_imu: the IMU data comes from the flight controller (a unit with no IMU on its
-// camera, the Lite+): its IMU is asked for, 20 times a second.
+// camera, the Lite+ and the P1): its IMU is asked for, 20 times a second.
 void    fcpoll_init(fcpoll_t *p, int fc_imu);
 uint8_t fcpoll_next(fcpoll_t *p);   // the MSP command for this slot
