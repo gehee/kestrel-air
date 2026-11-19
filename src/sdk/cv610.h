@@ -435,7 +435,7 @@ _Static_assert(sizeof(ot_isp_wb_attr) == 1300, "ot_isp_wb_attr");
 
 typedef struct __attribute__((aligned(4))) {
     uint16_t r_gain;
-    uint8_t rsv_2[4];
+    uint16_t gr_gain, gb_gain;
     uint16_t b_gain;
     uint8_t rsv_8[2];
     uint16_t color_temp;

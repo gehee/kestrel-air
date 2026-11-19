@@ -175,10 +175,10 @@ static void send_info(void) {
     image_get_info(&isp);
     // 720p90, 864p144, the 400 mW level, the live exposure cap (KA_CMD_MAX_EXP) and
     // strips have no feature bit (the header's byte is full): said here.
-    // cam_ctrl=: the camera settings it applies, where not all of them (the
-    // P1); a receiver offers only those (wb: kelvin presets, wb_lock: Lock
-    // current). strips=: where the encoder has them, how many a picture is in
-    // now and the most. modes=: the live view's requests it runs, where not
+    // cam_ctrl=: the camera settings it applies (the Lites: all, White
+    // Balance's Lock current included; the P1: fewer); a receiver offers only
+    // those (wb: kelvin presets, wb_lock: Lock current). strips=: where the
+    // encoder has them, how many a picture is in now and the most. modes=: the live view's requests it runs, where not
     // the stock four and its 864p ones (the P1: 1080p60, and 720p60 and 720p90
     // where its sensor driver has them); a goggle's Video Mode offers only
     // those. run=: new at each start, so the ground sends its settings again.

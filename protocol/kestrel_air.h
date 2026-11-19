@@ -45,7 +45,8 @@
 // (it has 1280x720@90; a 1280x720@120 request runs it too), pwr400=1
 // (TX power takes 400 mW and its AUTO, 401), strips=N/M (it encodes up to M
 // strips, N now: KA_CMD_STRIPS), cam_ctrl (the camera settings it applies,
-// where not all: rotate,scene,ev,wb,wb_lock,sat,contrast,sharpness,3dnr,focus),
+// of rotate,scene,ev,wb,wb_lock,sat,contrast,sharpness,3dnr,focus: a ground
+// offers only those, and White Balance's Lock current only where listed),
 // modes (the live view's sizes and rates it runs, as SET_CHN_RES asks for them:
 // "WxH@fps" comma-separated, where not the stock four - 1280x720 and 1920x1080
 // at 60 and 120 - and the 864p ones its features say; a ground offers only

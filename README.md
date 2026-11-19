@@ -96,7 +96,7 @@ The picture size, frame rate and camera angle come from the unit's own
 | Option | | Default |
 |---|---|---|
 | `--bb-window N` | video writes to the radio allowed in flight, unacknowledged | `1` (as stock) |
-| `--max-exposure-us US` | cap the sensor exposure | `0` (the tuning's own) |
+| `--max-exposure-us US` | cap the sensor exposure (a goggle's VIDEO > Max Exposure changes it while it runs) | `0` (the tuning's own) |
 | `--imu` | IMU data for the ground: the camera's IMU, its samples in the video as SEI (the Lite, below), else the flight controller's, polled over MSP (the Lite+, the P1) | off |
 | `--imu-dev PATH` | `--imu` on another spidev node | `/dev/spidev0.0` |
 | `--bb-verbose` | per-stage timing and radio events in the log | off |

@@ -242,7 +242,8 @@ void dispatch(const uint8_t *p, int len) {
     case 0x02: cfg_set("ev_x10", v); cfg_save(); image_set_ev(v); break;
     case 0x03: cfg_set("sat", v); cfg_save(); image_set_sat(v); break;
     case 0x04: cfg_set("sharpness", v); image_set_sharpness(v); cfg_save(); break;
-    case 0x05: cfg_set("cct", (int16_t)v); cfg_save(); image_set_awb(v); break;
+    // White Balance: saved after it applies, Lock current's gains with it.
+    case 0x05: cfg_set("cct", (int16_t)v); image_set_awb(v); cfg_save(); break;
     case 0x06:
         // Stock only stores the angle and stops video: the sensor turns at
         // the next pipeline restart (SET_CHN_RES, a new INIT_CFG size, boot).

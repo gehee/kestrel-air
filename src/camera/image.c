@@ -53,6 +53,12 @@ static int have_nr_bin, have_shp_bin;
 static uint8_t nr_bin[NR_BODY];
 static ot_isp_sharpen_attr shp_bin;
 static image_isp_info info;
+// The bin's AE route as loaded, which the exposure cap is taken off again at
+// each change (image_set_max_exposure), and isp_running's changes: a cap is
+// never set on a pipeline being torn down.
+static pthread_mutex_t route_mtx = PTHREAD_MUTEX_INITIALIZER;
+static ot_isp_ae_route bin_route;
+static int have_route;
 
 static void load_stock_tables(void) {
     FILE *f = fopen(STOCK_APP, "rb");
@@ -143,6 +149,17 @@ static void pq_bin_fit(uint8_t *buf, long size) {
     printf("image: bin fitted to %dx%d@%d\n", w, h, fps);
 }
 
+// The bin's route with the exposure cap on it (--max-exposure-us, the goggle's
+// Max Exposure): its integration times clipped to it, the gains kept, so AE
+// makes up the difference with gain. 0 leaves stock's route. Under route_mtx.
+static void route_apply_locked(void) {
+    ot_isp_ae_route r = bin_route;
+    if (image_max_exposure_us)
+        for (unsigned i = 0; i < r.total_num; i++)
+            if (r.route_node[i].int_time > image_max_exposure_us) r.route_node[i].int_time = image_max_exposure_us;
+    ss_mpi_isp_set_ae_route_attr(PIPE, &r);
+}
+
 // pq_bin_load: the tuning for gain level xg (0..3), frame rate, orientation
 // and day (scene 0) or night (2).
 static int pq_bin_load(int xg) {
@@ -169,23 +186,18 @@ static int pq_bin_load(int xg) {
         pq_bin_fit(buf, size);
         pq_bin_param p = { 1, 1, PIPE, { 0, 0, 0 } };
         if (OT_PQ_BIN_ImportBinData(&p, buf, (uint32_t)size) == 0) {
-            // The bin's AE route: the only exposure limits stock sets.
-            ot_isp_ae_route route;
-            memset(&route, 0, sizeof(route));
-            route.total_num = buf[0x200aa] > 15 ? 16 : buf[0x200aa];
-            for (unsigned i = 0; i < route.total_num && 0x200ac + 12 * i + 8 <= (unsigned)size; i++) {
-                memcpy(&route.route_node[i].int_time, buf + 0x200ac + 12 * i, 4);
-                memcpy(&route.route_node[i].sys_gain, buf + 0x200ac + 12 * i + 4, 4);
+            // The bin's AE route: the only exposure limits stock sets. Kept,
+            // and set with the exposure cap on it.
+            pthread_mutex_lock(&route_mtx);
+            memset(&bin_route, 0, sizeof(bin_route));
+            bin_route.total_num = buf[0x200aa] > 15 ? 16 : buf[0x200aa];
+            for (unsigned i = 0; i < bin_route.total_num && 0x200ac + 12 * i + 8 <= (unsigned)size; i++) {
+                memcpy(&bin_route.route_node[i].int_time, buf + 0x200ac + 12 * i, 4);
+                memcpy(&bin_route.route_node[i].sys_gain, buf + 0x200ac + 12 * i + 4, 4);
             }
-            // Optional cap on the exposure (--max-exposure-us): the route's
-            // integration times are clipped to it, the gains kept, so AE
-            // makes up the difference with gain. 0 leaves stock's route.
-            if (image_max_exposure_us) {
-                for (unsigned i = 0; i < route.total_num; i++)
-                    if (route.route_node[i].int_time > image_max_exposure_us)
-                        route.route_node[i].int_time = image_max_exposure_us;
-            }
-            ss_mpi_isp_set_ae_route_attr(PIPE, &route);
+            have_route = 1;
+            route_apply_locked();
+            pthread_mutex_unlock(&route_mtx);
 
             // Keep the bin's own 3DNR and sharpen for the settings built on them.
             ot_3dnr_param nr;
@@ -285,11 +297,47 @@ void image_set_sharpness(int menu) {
     ss_mpi_isp_set_sharpen_attr(PIPE, &a);
 }
 
-void image_set_awb(int cct) {
+// A Lock current gain, Q8 (green 256): what the ISP takes.
+static int wb_gain_ok(int g) { return g >= 64 && g <= 4095; }
+
+// White Balance: 0 Auto; a kelvin preset, held at the CV2004 table's gains for
+// it (stock's) or the ISP's for another sensor; -1 Lock current (ours), held
+// at the AWB's gains: taken as it is when the goggle asks (lock_now), saved
+// (wb_lock_red, wb_lock_blue: Q8, green 256, as on the P1) and set from there
+// at each bin load and start. A lock with no gains to hold goes back to Auto.
+static void awb_set(int cct, int lock_now) {
     static ot_isp_wb_attr wb;
     printf("image: white balance %d\n", cct);
     if (ss_mpi_isp_get_wb_attr(PIPE, &wb) != 0) return;
-    if (cct == 0) {
+    if (cct == -1) {
+        int r = cfg_get("wb_lock_red", 0), b = cfg_get("wb_lock_blue", 0);
+        if (lock_now) {
+            ot_isp_wb_info i;
+            r = b = 0;
+            if (ss_mpi_isp_query_wb_info(PIPE, &i) == 0 && i.gr_gain + i.gb_gain > 0) {
+                const unsigned g = ((unsigned)i.gr_gain + i.gb_gain + 1) / 2;
+                r = (int)(((unsigned)i.r_gain * 256 + g / 2) / g);
+                b = (int)(((unsigned)i.b_gain * 256 + g / 2) / g);
+            }
+        }
+        if (!wb_gain_ok(r) || !wb_gain_ok(b)) {
+            printf("image: no white balance %s: Auto\n", lock_now ? "to lock" : "lock saved");
+            cfg_set("cct", 0);
+            wb.op_type = OT_OP_MODE_AUTO;
+            ss_mpi_isp_set_wb_attr(PIPE, &wb);
+            return;
+        }
+        if (lock_now) {
+            cfg_set("wb_lock_red", r);
+            cfg_set("wb_lock_blue", b);
+        }
+        printf("image: white balance locked at red %d, blue %d (green 256)\n", r, b);
+        wb.op_type = OT_OP_MODE_MANUAL;
+        wb.manual_attr.r_gain = (td_u16)r;
+        wb.manual_attr.gr_gain = 256;
+        wb.manual_attr.gb_gain = 256;
+        wb.manual_attr.b_gain = (td_u16)b;
+    } else if (cct == 0) {
         wb.op_type = OT_OP_MODE_AUTO;
     } else {
         td_u16 g[4] = { 0, 0, 0, 0 };
@@ -312,6 +360,9 @@ void image_set_awb(int cct) {
     }
     ss_mpi_isp_set_wb_attr(PIPE, &wb);
 }
+
+// The goggle's: Lock current takes the gains now.
+void image_set_awb(int cct) { awb_set(cct, 1); }
 
 // 3D noise reduction: 0 off, -1 the bin's, 1..3 stock's presets.
 static void set_de3d(int s) {
@@ -356,18 +407,31 @@ void image_set_scene(int v) {
 
 void image_low_power(int on) { (void)on; }       // print-only in stock
 
-// The goggle's Max Exposure: the cap here is taken when the route is built
-// (image_start), not while it runs, so the info does not offer it.
-int image_max_exposure_live(void) { return 0; }
-int image_set_max_exposure(unsigned us) { (void)us; return -1; }
+// The goggle's Max Exposure, while it runs: the loaded bin's route set again
+// with the new cap on it, from the AE's operating point. Each bin load (a gain
+// level, a scene, a pipeline restart) takes it too.
+int image_max_exposure_live(void) { return 1; }
+int image_set_max_exposure(unsigned us) {
+    if (us > 1000000) return -1;
+    pthread_mutex_lock(&route_mtx);
+    if (us != image_max_exposure_us) {
+        image_max_exposure_us = us;
+        printf("image: exposure capped at %u us%s\n", us, us ? ", the gain making up the rest" : " - none, the bin's own");
+        if (have_route && isp_running) route_apply_locked();
+    }
+    pthread_mutex_unlock(&route_mtx);
+    return 0;
+}
 
-// The camera settings it applies: all of them (its info says no cam=).
-const char *image_settings(void) { return NULL; }
+// The camera settings it applies: all of the goggle's, White Balance's Lock
+// current (wb_lock, ours) included - which a goggle offers only where the info
+// lists it, as on the P1.
+const char *image_settings(void) { return "rotate,scene,ev,wb,wb_lock,sat,contrast,sharpness,3dnr,focus"; }
 
 // All the image settings at once
 void image_apply_all(void) {
     pthread_mutex_lock(&mtx);
-    image_set_awb((int16_t)cfg_get("cct", 0));
+    awb_set((int16_t)cfg_get("cct", 0), 0);   // a lock: the gains saved with it
     image_set_ev(cfg_get("ev_x10", 0));
     image_set_contrast(cfg_get("contrast", 0));
     image_set_sat(cfg_get("sat", 0));
@@ -433,7 +497,11 @@ static void *isp_thread(void *arg) {
     return NULL;
 }
 
-void image_pause(void) { isp_running = 0; }
+void image_pause(void) {
+    pthread_mutex_lock(&route_mtx);   // a cap being set is done before the teardown
+    isp_running = 0;
+    pthread_mutex_unlock(&route_mtx);
+}
 
 // After a pipeline restart: the xg1 bin for the new rate and
 // orientation; the ISP thread re-applies the settings once it is loaded.
