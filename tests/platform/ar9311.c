@@ -43,7 +43,11 @@ int main(void) {
     assert(w == 1920 && h == 1080 && f == 60);   // without the driver's 720p modes
     has_720p90 = 1;
     check_modes();
-    assert(!strcmp(platform_modes(), "1920x1080@60,1280x720@60,1280x720@90"));
+    assert(!strcmp(platform_modes(), "1920x1080@60,1280x720@90"));
+    /* 720p60 is a crop of the picture: 1080p60 shows all of it. */
+    w = 1280; h = 720; f = 60;
+    platform_format(&w, &h, &f);
+    assert(w == 1920 && h == 1080 && f == 60);
     /* A goggle that asks for the Ascents' 720p100 (1280x720@120) gets 720p90. */
     w = 1280; h = 720; f = 120;
     platform_format(&w, &h, &f);

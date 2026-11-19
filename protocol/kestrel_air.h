@@ -43,8 +43,8 @@
 // sensor's readout of the picture's rows in the mode running now), exposure
 // (us: each row's, as AE has it now), 864p144=1 (it has that mode), 720p90=1
 // (it has 1280x720@90; a 1280x720@120 request runs it too), pwr400=1
-// (TX power takes 400 mW and its AUTO, 401), strips=N/M (it encodes up to M
-// strips, N now: KA_CMD_STRIPS), cam_ctrl (the camera settings it applies,
+// (TX power takes 400 mW and its AUTO, 401: a board that goes to 25 dBm),
+// strips=N/M (it encodes up to M strips, N now: KA_CMD_STRIPS), cam_ctrl (the camera settings it applies,
 // of rotate,scene,ev,wb,wb_lock,sat,contrast,sharpness,3dnr,focus: a ground
 // offers only those, and White Balance's Lock current only where listed),
 // modes (the live view's sizes and rates it runs, as SET_CHN_RES asks for them:

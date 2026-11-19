@@ -7,7 +7,8 @@
 // and 316 mW levels and their AUTO (151, 201, 317) are ours: a ground that
 // has seen KA_FEAT_PWRLVL offers them, so AUTO's top can be set below 500 mW.
 // 400 mW (25 dBm) and its AUTO (401) too, offered where the info says
-// pwr400=1 (the header's feature byte is full).
+// pwr400=1 (the header's feature byte is full): a board that goes that high,
+// the Lite+.
 //
 // dbm: the board's level for it, stock's table (labels 1 dB above the level:
 // kept, the board's gain after the chip is not known). 316 mW is 24 dBm: what

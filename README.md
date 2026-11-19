@@ -11,8 +11,8 @@ on top of that it sends each slice as soon as it is encoded, with intra
 refresh instead of periodic keyframes, and tells kestrel-gnd its own timing.
 
 An experimental **BETAFPV P1 Air / AR9311** backend uses fpvOS's source camera
-and encoder drivers through V4L2. It sends 1080p60 HEVC, or 720p at 90 or 60 fps
-where fpvOS's sensor driver has those modes, in slices or strips with intra refresh.
+and encoder drivers through V4L2. It sends 1080p60 HEVC, or 720p90
+where fpvOS's sensor driver has that mode, in slices or strips with intra refresh.
 See [AR9311 development](docs/ar9311.md) for building, provisioning and limitations.
 The SDK build and runtime instructions below describe the default HiSilicon backend.
 

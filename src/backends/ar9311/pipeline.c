@@ -58,7 +58,7 @@ int camera_pipeline_create(char sensor, short w, short h, char rate, int slices)
     char p[128], want[16], cmd[64];
     (void)sensor; (void)slices;
     if (!((w == 1920 && h == 1080 && rate == 60) ||
-          (w == 1280 && h == 720 && (rate == 90 || rate == 60)))) return -1;
+          (w == 1280 && h == 720 && rate == 90))) return -1;
     snprintf(want, sizeof(want), "%dp%d", h, rate);
     if (sensor_mode(loaded_mode, sizeof(loaded_mode))) loaded_mode[0] = 0;
     if (strcmp(loaded_mode, want)) {
