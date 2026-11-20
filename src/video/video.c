@@ -12,6 +12,7 @@
 // With --imu the last slice of each picture carries, after the slice, the IMU
 // samples taken since the previous picture as suffix-SEI NAL units (imu.c).
 #include "video/video.h"
+#include "video/spectator.h"
 #include "video/internal.h"
 #include "video/ring.h"
 #include "video/stats.h"
@@ -170,6 +171,8 @@ static void *read_thread(void *arg) {
     int cnt = 0, slice_idx = 0, first = 1;
     uint8_t *pkt = NULL;
     uint32_t coef_t = 0;
+    spectator_recovery recovery = {0};
+    uint64_t spectator_announced = 0;
 
     for (;;) {
         if (cmd_req) {
@@ -182,8 +185,9 @@ static void *read_thread(void *arg) {
             }
             cmd_req = 0;
         }
-        if (!send_enabled) { usleep(10000); continue; }
+        if (!send_enabled) { recovery.active = 0; usleep(10000); continue; }
         if (!radio_connected()) {
+            recovery.active = 0;
             if (venc_running) {
                 venc_stop_destroy();
                 ring_flush(2500);
@@ -247,6 +251,9 @@ static void *read_thread(void *arg) {
         }
 
         if (!pkt && !(pkt = ring_reserve(PKT_MAX))) { usleep(2000); continue; }
+        if (spectator_recovery_due(&recovery, cfg_get("allow_spectators", 0) == 1,
+                                   slice_idx == 0, mono_us()))
+            video_recovery_picture();
         cache_monitor();
         vframe f = {0};
         uint8_t *payload = pkt + HDR + EXT;
@@ -282,6 +289,16 @@ static void *read_thread(void *arg) {
         uint32_t plen = len;
         if (f.frame_end && imu_dev && len + 512 < PKT_MAX - HDR - EXT - 4)
             plen += imu_sei(payload + len, PKT_MAX - HDR - EXT - 4 - len, f.pts, seq);
+
+        if (f.frame_end && cfg_get("allow_spectators", 0) == 1 &&
+            t_got - spectator_announced >= 250000) {
+            uint8_t mac[4];
+            radio_spectator_identity(mac);
+            size_t added = spectator_sei(payload + plen, PKT_MAX - HDR - EXT - 4 - plen,
+                                        mac, width, height, fps);
+            plen += added;
+            if (added) spectator_announced = t_got;
+        }
 
         uint32_t now = raw_ms();
         uint8_t *h = pkt + 4;

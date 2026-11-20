@@ -114,7 +114,7 @@ HOSTCC ?= cc
 TEST_SRCS = $(wildcard tests/*.c) $(SRC_DIR)/ground/frame.c $(SRC_DIR)/common/crc.c \
 	$(SRC_DIR)/common/json.c $(SRC_DIR)/common/file.c $(SRC_DIR)/video/ring.c $(SRC_DIR)/app/settings.c \
 	$(SRC_DIR)/unit/model.c $(SRC_DIR)/video/slices.c $(SRC_DIR)/unit/fcpoll.c
-tests/run: $(TEST_SRCS) $(wildcard tests/*.h) $(wildcard protocol/*.h)
+tests/run: $(TEST_SRCS) $(wildcard tests/*.h) $(wildcard protocol/*.h) $(SRC_DIR)/video/spectator.h
 	$(HOSTCC) -O1 -g -Wall -Wextra -pthread -I$(SRC_DIR) -Iprotocol -Itests -o $@ $(TEST_SRCS) -lm
 test: tests/run
 	./tests/run

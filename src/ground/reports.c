@@ -192,14 +192,14 @@ static void send_info(void) {
     char strips[24] = "";
     if (strips_max > 1) snprintf(strips, sizeof(strips), "strips=%d/%d\n", strips_now, strips_max);
     const int n = len + snprintf(out + len, sizeof(out) - (size_t)len,
-                                 "readout=%u\nexposure=%u\n%s%s%s%s%s%s%s%s%s%srun=%08x\n%s",
+                                 "readout=%u\nexposure=%u\n%s%s%s%s%s%s%s%s%s%srun=%08x\n%sspectators=%d\n",
                                  camera_readout_us(), (unsigned)isp.exp_time_us,
                                  camera_has_720p90() ? "720p90=1\n" : "",
                                  camera_has_864p144() ? "864p144=1\n" : "",
                                  image_max_exposure_live() ? "maxexp=1\n" : "",
                                  cam ? "cam_ctrl=" : "", cam ? cam : "", cam ? "\n" : "",
                                  modes ? "modes=" : "", modes ? modes : "", modes ? "\n" : "", strips, run,
-                                 model_max_dbm() >= 25 ? "pwr400=1\n" : "");
+                                 model_max_dbm() >= 25 ? "pwr400=1\n" : "", cfg_get("allow_spectators", 0) == 1);
     ground_send((const uint8_t *)out, n < (int)sizeof(out) ? n : (int)sizeof(out) - 1);
 }
 

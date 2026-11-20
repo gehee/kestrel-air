@@ -4,6 +4,7 @@
 int checks, failures;
 
 int main(void) {
+    test_spectator();
     test_protocol();
     test_crc();
     test_frame();

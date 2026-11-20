@@ -42,6 +42,7 @@ int main(void) {
     assert(strstr(image_settings(), ",focus"));
     ar9311_side_qp = 0;
     char directory[]=".local/tests/camera-XXXXXX", path[128];
+    assert(cfg_get("allow_spectators", -1) == 1);
     assert(mkdtemp(directory));
     snprintf(path,sizeof(path),"%s/settings.json",directory);
     assert(!setenv("KA_CONFIG",path,1));
@@ -77,6 +78,10 @@ int main(void) {
     p=fake(&ae_fd,"SET -7","OK -7 0 0");
     w=fake(&awb_fd,"SET -1 476 525","OK -1 476 525");
     assert(!apply_saved() && cfg_get("cct",0)==5000);reap(p);reap(w);close(ae_fd);close(awb_fd);
+    cfg_set("allow_spectators", 1);
+    assert(!cfg_save());
+    cfg_set("allow_spectators", 0);
+    assert(!cfg_load() && cfg_get("allow_spectators", -1) == 1);
     unlink(tuning);
     unlink(path);rmdir(directory);
 

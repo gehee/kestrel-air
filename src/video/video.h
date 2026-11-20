@@ -32,3 +32,6 @@ void video_strips(int *now, int *max);
 // What this air app can do (KA_FEAT_* in protocol/kestrel_air.h), announced
 // in the version message and every slice header.
 uint8_t video_features(void);
+
+// One recovery picture, without changing the encoder GOP/intra-refresh policy.
+void video_recovery_picture(void);

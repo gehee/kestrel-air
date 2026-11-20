@@ -791,6 +791,7 @@ void video_enable_idr(int on) {
         if(set_control(strip[k].fd,V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME,0)) { recover("encoder keyframe"); break; }
     pthread_mutex_unlock(&venc_mtx);
 }
+void video_recovery_picture(void) { video_enable_idr(1); }
 // KA_CMD_STRIPS (and the link going down: 0): taken at the next channel,
 // which this asks the read loop for, between pictures.
 // After a link lost, strips are the next ground's to ask for (KA_CMD_STRIPS):

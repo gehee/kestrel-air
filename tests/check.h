@@ -6,6 +6,7 @@ extern int checks, failures;
 #define CHECK(c) do { checks++; if (!(c)) { failures++; \
     printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); } } while (0)
 
+void test_spectator(void);
 void test_protocol(void);
 void test_crc(void);
 void test_frame(void);
