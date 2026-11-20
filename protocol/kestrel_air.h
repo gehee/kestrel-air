@@ -70,6 +70,7 @@
 #define KA_CMD_MAX_EXP  0x43   // u32 LE: the auto exposure's longest exposure in us, 0 = none
                                // (the camera's own); an air unit that takes it says maxexp=1
                                // in its info (KA_MSG_INFO)
+#define KA_CMD_SPECTATORS 0x45 // u8 boolean; saved on air, advertised as spectators=0/1
 #define KA_CMD_STRIPS   0x44   // u8: strips a picture is encoded in (KA_SLICE_STRIP), 0 or 1:
                                // whole pictures; an air unit that has them says strips=N/M in
                                // its info, and goes back to whole pictures when the link drops

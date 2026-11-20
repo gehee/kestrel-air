@@ -36,6 +36,7 @@ static bbc_ioctl_conn io;
 radio_hooks r_hooks;
 
 static uint8_t own_mac[4];
+void radio_spectator_identity(uint8_t mac[4]) { memcpy(mac, own_mac, 4); }
 int r_nfreq;
 uint32_t r_freq[128];
 

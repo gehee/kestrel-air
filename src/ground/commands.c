@@ -236,7 +236,7 @@ void dispatch(const uint8_t *p, int len) {
     // A kestrel-gnd's own command (it sends one in every link-up's handshake):
     // the ground on this link may ask for strips again, later than a stock one
     // would have shown itself.
-    if (id >= KA_CMD_MAX_KBPS && id <= KA_CMD_STRIPS) video_strips_kestrel_ground();
+    if (id >= KA_CMD_MAX_KBPS && id <= KA_CMD_SPECTATORS) video_strips_kestrel_ground();
     switch (id) {
     case 0x01: if (len < 5) { puts("ground: argument missing"); break; }
                cfg_set("scenes", v); cfg_save(); image_set_scene(v); break;
@@ -324,6 +324,12 @@ void dispatch(const uint8_t *p, int len) {
     case KA_CMD_MAX_KBPS: if (len >= 5) radio_set_max_kbps(v); break;
     case KA_CMD_MAX_BW:   if (len >= 2) radio_set_max_bw(p[1]); break;
     case KA_CMD_MAX_EXP:  if (len >= 5 && v >= 0) image_set_max_exposure((unsigned)v); break;
+    case KA_CMD_SPECTATORS:
+        if (len == 2 && p[1] <= 1) {
+            cfg_set("allow_spectators", p[1]);
+            cfg_save();
+        }
+        break;
     case KA_CMD_STRIPS:   if (len >= 2) video_set_strips(p[1]); break;
     // No flight logs on the air unit's flash any more, whatever the goggle's
     // Debug Info says (/tmp/air.log, in RAM, has the same output).

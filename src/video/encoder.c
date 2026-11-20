@@ -398,6 +398,9 @@ void video_set_bitrate(int kbps) { param_set(video_tgt_fps(), kbps); sb_last_kbp
 void video_scale_bitrate(int num, int den) {
     if (fc_bitmap & 4) set_venc_bitrate(0, venc_kbps * num / den, 2);
 }
+void video_recovery_picture(void) {
+    ss_mpi_venc_request_idr(CHN, TD_TRUE);
+}
 void video_enable_idr(int en) {
     ss_mpi_venc_enable_idr(CHN, en ? TD_TRUE : TD_FALSE);
     // Experiment: with intra refresh there are no regular IDRs, so a goggle

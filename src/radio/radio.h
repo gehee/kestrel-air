@@ -57,3 +57,5 @@ int  radio_set_freq(int is_hop, uint32_t freq_khz);
 void radio_set_gnd_work_list(const uint32_t *freqs, int n);
 void radio_set_mcs_policy(void);           // after video_strategy changes
 void radio_set_uart_mode(int mode);        // ground msg 0x29
+
+void radio_spectator_identity(uint8_t mac[4]);
