@@ -1,6 +1,7 @@
 // Transmit power and the standby low-power mode.
 #include "radio/internal.h"
 
+#include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,6 +32,28 @@ static int power_dbm(int p) {
 static volatile int applied_dbm = -1;
 int radio_tx_dbm(void) { return applied_dbm; }
 
+// Thermal back-off, before the 110 C reboot (adc.c): from sys_thermal_c
+// (95 C) until 8 C below it. On the bench (not flying) the radio and the
+// sensor go to their low-power level, whatever sys_standby_mode says - a unit
+// at 200 mW on a desk has no airflow. Flying, the TX power is capped at
+// sys_thermal_cap_dbm (20 dBm, 100 mW) rather than cut further: less heat,
+// and still a link to fly home on.
+static volatile int thermal_cap_dbm = -1;   // -1: no cap
+static int thermal_hot(void) {
+    static int hot;
+    const int t = shared.cpu_temp_x100;
+    if (t == INT_MIN) return hot;
+    const int on = cfg_get("sys_thermal_c", 95) * 100;
+    if (!hot && t >= on) {
+        hot = 1;
+        printf("radio: SoC at %d.%02d C: thermal back-off until %d C\n", t / 100, t % 100, on / 100 - 8);
+    } else if (hot && t < on - 800) {
+        hot = 0;
+        printf("radio: SoC at %d.%02d C: thermal back-off over\n", t / 100, t % 100);
+    }
+    return hot;
+}
+
 static void set_local_power(int p) {
     int dbm = power_dbm(p);
     if (dbm < 0) {
@@ -45,6 +68,10 @@ static void set_local_power(int p) {
     if (dbm > model_max_dbm()) {
         printf("radio: %d dBm is above this unit's %d dBm: %d dBm\n", dbm, model_max_dbm(), model_max_dbm());
         dbm = model_max_dbm();
+    }
+    if (thermal_cap_dbm >= 0 && dbm > thermal_cap_dbm) {
+        printf("radio: %d dBm capped to %d dBm while the SoC is hot\n", dbm, thermal_cap_dbm);
+        dbm = thermal_cap_dbm;
     }
     // AUTO (stock's N+1: 101, 501, and ours 151, 201, 317): the radio takes
     // the ground's power requests between 25 mW and the level (an Open8030
@@ -84,7 +111,7 @@ void *r_standby_thread(void *arg) {
     // failed and 4.7% were sent again on the bench (40 MHz MCS 8, ~1 m),
     // against 1.3% / 1.3% from 13 dBm up (2026-11-02).
     const int low = 13;
-    int cur = -1, low_power = 0, first = 1, cur_pathb = 1;
+    int cur = -1, low_power = 0, first = 1, cur_pathb = 1, cur_cap = -1;
     for (;;) {
         if (!first && !r_connected) {
             while (!r_connected) usleep(30000);
@@ -96,9 +123,11 @@ void *r_standby_thread(void *arg) {
         // Bench sweeps (/tmp/ka-tune): a power in dBm and the second path.
         if (flying && video_tune_pwr() > 0) want = 1000 + video_tune_pwr();
         const int pathb = flying ? video_tune_pathb() : 1;
+        const int hot = thermal_hot();
+        const int cap = hot && flying ? cfg_get("sys_thermal_cap_dbm", 20) : -1;
         int normal;
-        if (flying) normal = low_power || want != cur || pathb != cur_pathb ? 1 : -1;
-        else if (cfg_get("sys_standby_mode", 1) == 0) normal = want != cur || low_power ? 1 : -1;
+        if (flying) normal = low_power || want != cur || pathb != cur_pathb || cap != cur_cap ? 1 : -1;
+        else if (!hot && cfg_get("sys_standby_mode", 1) == 0) normal = want != cur || low_power || cap != cur_cap ? 1 : -1;
         else normal = !(cur == low && low_power) ? 0 : -1;
 
         if (normal == 0) {            // into low power, the sensor too
@@ -120,9 +149,10 @@ void *r_standby_thread(void *arg) {
             usleep(100000);
             uint8_t a[3] = { 3, 0, 1 };
             r_set(0x0009, a, 3);
+            thermal_cap_dbm = cap;
             set_local_power(want);
             if (pathb != 1) printf("radio: second TX path off (bench)\n");
-            cur = want; cur_pathb = pathb;
+            cur = want; cur_pathb = pathb; cur_cap = cap;
             low_power = 0;
         }
         usleep(30000);

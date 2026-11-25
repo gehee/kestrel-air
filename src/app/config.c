@@ -33,6 +33,7 @@ static struct { const char *key; int val; } keys[] = {
     { "rec_color_mode", 0 }, { "rec_sharpness", 5 }, { "rec_sat", 5 }, { "rec_enc_format", 0 },
     { "rec_pack_durtion", 5 }, { "cam_2dnr_strength", 1 }, { "cam_max_iso_mode", 0 },
     { "cam_anti_flicker_en", 0 }, { "bb_power_mw", 25 }, { "sys_standby_mode", 1 },
+    { "sys_thermal_c", 95 }, { "sys_thermal_cap_dbm", 20 },
     { "video_strategy", 0 },
 #ifdef KA_PLATFORM_AR9311
     { "wb_lock_red", 0 }, { "wb_lock_blue", 0 },
